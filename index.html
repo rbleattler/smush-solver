@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f1e7">
+  <meta name="description" content="A phone-friendly strategy solver for Smush.">
+  <title>Smush Solver</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css?v=2">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SMUSH STRATEGY LAB</p>
+        <h1>Spend every letter.<br><em>Know the path.</em></h1>
+      </div>
+      <a class="game-link" href="https://www.hankgreen.com/smush/" target="_blank" rel="noreferrer">Play Smush ↗</a>
+    </header>
+
+    <section class="card controls" aria-labelledby="puzzle-heading">
+      <div class="section-head">
+        <div>
+          <p class="kicker">01 · Pick a board</p>
+          <h2 id="puzzle-heading">Daily puzzle</h2>
+        </div>
+        <span id="connectionBadge" class="badge">Loading archive…</span>
+      </div>
+      <label class="field">
+        <span>Date</span>
+        <select id="dateSelect" disabled><option>Loading…</option></select>
+      </label>
+      <p id="loadMessage" class="micro" role="status"></p>
+    </section>
+
+    <section id="boardCard" class="card board-card hidden" aria-labelledby="board-heading">
+      <div class="section-head">
+        <div>
+          <p class="kicker">02 · Read the board</p>
+          <h2 id="board-heading"><span id="boardDate"></span></h2>
+        </div>
+        <span id="authorBadge" class="badge"></span>
+      </div>
+      <div id="tiles" class="tiles" aria-label="Puzzle letters"></div>
+      <div class="board-meta">
+        <div><span>First spicy</span><strong id="firstSpice">—</strong></div>
+        <div><span>Tile lives</span><strong id="wearValue">—</strong></div>
+        <div><span>Accepted words</span><strong id="wordCount">—</strong></div>
+      </div>
+      <div id="spoilerGate" class="spoiler-gate hidden">
+        <p>Today’s pangram and solve results are hidden.</p>
+        <button id="revealSpoilers" class="button danger">Reveal today’s spoilers</button>
+      </div>
+      <div id="pangramPanel" class="pangram-panel">
+        <span>Pangram</span>
+        <strong id="pangramValue"></strong>
+        <small id="editorPick"></small>
+      </div>
+    </section>
+
+    <section id="solverCard" class="card hidden" aria-labelledby="solver-heading">
+      <div class="section-head">
+        <div>
+          <p class="kicker">03 · Set the heat</p>
+          <h2 id="solver-heading">Solve settings</h2>
+        </div>
+      </div>
+      <label class="field">
+        <span>Spicy order</span>
+        <input id="spiceOrder" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Example: R, G, O, H">
+        <small>Optional. One letter per play, in order. Unknown later plays receive no speculative spice bonus.</small>
+      </label>
+      <div class="field-grid">
+        <label class="field">
+          <span>Maximum words</span>
+          <select id="maxWords">
+            <option value="6">6</option>
+            <option value="8">8</option>
+            <option value="10" selected>10</option>
+            <option value="12">12</option>
+            <option value="14">14</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Search budget</span>
+          <select id="timeBudget">
+            <option value="5000">5 seconds</option>
+            <option value="15000" selected>15 seconds</option>
+            <option value="30000">30 seconds</option>
+            <option value="60000">60 seconds</option>
+          </select>
+        </label>
+      </div>
+      <button id="solveButton" class="button primary">Find the best clean plate</button>
+      <button id="cancelButton" class="button ghost hidden">Stop search</button>
+      <p class="micro">The search obeys the game’s curated word list, five-use inventory, no-duplicate rule, additive multipliers, pangram scoring, and Editor’s Choice bonus.</p>
+    </section>
+
+    <section id="resultCard" class="card results hidden" aria-live="polite">
+      <div class="section-head">
+        <div>
+          <p class="kicker">04 · Best route</p>
+          <h2 id="resultHeading">Searching…</h2>
+        </div>
+        <span id="proofBadge" class="badge"></span>
+      </div>
+      <div id="searchProgress" class="progress-wrap">
+        <div class="progress"><i></i></div>
+        <p>Exploring clean-plate combinations in a background worker…</p>
+      </div>
+      <div id="resultBody" class="hidden">
+        <div class="score-hero">
+          <span>Deterministic maximum</span>
+          <strong id="maxScoreValue">—</strong>
+          <small id="scoreScope"></small>
+        </div>
+        <ol id="solvePath" class="solve-path"></ol>
+        <details>
+          <summary>Score breakdown</summary>
+          <div id="scoreBreakdown" class="breakdown"></div>
+        </details>
+        <p id="resultNote" class="micro"></p>
+      </div>
+    </section>
+
+    <footer>
+      <p>Independent companion for <a href="https://www.hankgreen.com/smush/">Smush</a>. Puzzle data is fetched from the game’s public feed and cached only in your browser.</p>
+    </footer>
+  </main>
+  <script type="module" src="app.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "Smush Solver",
+  "short_name": "Smush Solver",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f1e7",
+  "theme_color": "#f7f1e7",
+  "description": "A phone-friendly strategy solver for Smush."
+}
