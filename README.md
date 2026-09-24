@@ -8,13 +8,14 @@ A static, mobile-first strategy solver for [Smush](https://www.hankgreen.com/smu
 - Hides the current day's pangram and solution controls behind a spoiler gate.
 - Reproduces finite tile wear, the required gold letter, curated word validation, duplicate restrictions, spicy uses, smush multipliers, pangrams, Editor's Choice, and deterministic end-tally bonuses.
 - Searches for clean-plate routes in a Web Worker.
-- Accepts a hypothetical or observed spicy-letter order.
+- Recommends the best next word for the currently visible spicy letter while preserving a clean-plate continuation.
+- Records each recommended play locally, updates the remaining tile lives, and recalculates when the next spicy letter appears.
 - Reports whether the displayed maximum was proven or is merely the best route found before the selected time limit.
 - Caches the application shell and most recently loaded archive for use on a phone.
 
 ## Scoring scope
 
-The displayed maximum includes deterministic bonuses that can be calculated from a route: word scores, spicy uses supplied by the user, tile-smush bonuses, pangrams, Editor's Choice, Clean Plate, Unassisted, Beat the Robot, Heavy Lifter/Word Hoard, Perfect, and ICE COLD when a complete spice order proves it.
+The displayed projection includes deterministic bonuses that can be calculated from the known state: recorded and projected word scores, the currently visible spicy letter, tile-smush bonuses, pangrams, Editor's Choice, Clean Plate, Unassisted, Beat the Robot, Heavy Lifter/Word Hoard, and Perfect. It intentionally assigns no spicy bonus to future plays because those letters have not yet been revealed.
 
 It excludes bonuses whose values depend on live community statistics, elapsed time, streaks, or the player's prior browser history.
 

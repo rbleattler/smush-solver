@@ -1,6 +1,10 @@
 const FEED = "https://fourbythree-stats.hankmt.workers.dev/spub";
 const $ = (id) => document.getElementById(id);
-const state = { puzzles: [], puzzle: null, date: null, worker: null, spoilers: false };
+const state = { puzzles: [], puzzle: null, date: null, worker: null, spoilers: false, session: null, latestBest: null };
+
+function mortalChunks(puzzle) {
+  return puzzle.chunks.filter((c) => c !== puzzle.required && puzzle.words.some((w) => w.includes(c.toLowerCase()))).map((c) => c.toLowerCase());
+}
 
 function localDate() {
   const d = new Date();
@@ -12,7 +16,7 @@ function formatDate(value) {
 }
 
 function initialSpice(puzzle) {
-  const mortal = puzzle.chunks.filter((c) => c !== puzzle.required && puzzle.words.some((w) => w.includes(c.toLowerCase())));
+  const mortal = mortalChunks(puzzle);
   let hash = 0;
   for (const c of puzzle.pangram || "") hash = ((hash * 31) + c.charCodeAt(0)) >>> 0;
   return mortal.length ? mortal[hash % mortal.length] : "—";
@@ -65,6 +69,8 @@ function showPuzzle(date) {
   if (!entry) return;
   state.date = date;
   state.puzzle = { ...entry.puzzle, release: date };
+  state.session = loadSession(date, state.puzzle);
+  state.latestBest = null;
   state.spoilers = date !== localDate() || sessionStorage.getItem(`smush-spoilers-${date}`) === "1";
   history.replaceState(null, "", `${location.pathname}?date=${date}`);
 
@@ -73,13 +79,9 @@ function showPuzzle(date) {
   $("wearValue").textContent = `${state.puzzle.wear || 5} each`;
   $("wordCount").textContent = state.puzzle.words.length.toLocaleString();
   $("firstSpice").textContent = initialSpice(state.puzzle).toUpperCase();
-  $("spiceOrder").placeholder = `Example: ${initialSpice(state.puzzle).toUpperCase()}, …`;
+  renderSpiceOptions(state.session.played.length === 0 ? initialSpice(state.puzzle).toLowerCase() : "");
 
-  const chunks = state.puzzle.chunks;
-  const hubIndex = chunks.indexOf(state.puzzle.required);
-  const display = chunks.filter((_, i) => i !== hubIndex);
-  display.splice(4, 0, chunks[hubIndex]);
-  $("tiles").innerHTML = display.map((chunk) => `<div class="tile ${chunk === state.puzzle.required ? "gold" : ""}">${chunk}<small>${chunk === state.puzzle.required ? "REQUIRED · ∞" : `${state.puzzle.wear || 5} USES`}</small></div>`).join("");
+  renderBoardState();
 
   $("pangramValue").textContent = state.puzzle.pangram;
   $("editorPick").textContent = state.puzzle.ec ? `Editor’s Choice: ${state.puzzle.ec.toUpperCase()} (+15)` : "";
@@ -90,6 +92,50 @@ function showPuzzle(date) {
   $("resultCard").classList.add("hidden");
 }
 
+function sessionKey(date) { return `smush-solver-session-v1-${date}`; }
+
+function freshSession(puzzle) {
+  return { remaining: mortalChunks(puzzle).map(() => puzzle.wear || 5), played: [], score: 0, firstPangram: false };
+}
+
+function loadSession(date, puzzle) {
+  try {
+    const value = JSON.parse(localStorage.getItem(sessionKey(date)));
+    if (value && Array.isArray(value.remaining) && value.remaining.length === mortalChunks(puzzle).length && Array.isArray(value.played)) return value;
+  } catch { /* start fresh */ }
+  return freshSession(puzzle);
+}
+
+function saveSession() {
+  localStorage.setItem(sessionKey(state.date), JSON.stringify(state.session));
+}
+
+function renderSpiceOptions(selected = "") {
+  const options = mortalChunks(state.puzzle);
+  $("currentSpice").innerHTML = `<option value="">Choose the spicy letter…</option>${options.map((letter) => `<option value="${letter}">${letter.toUpperCase()}</option>`).join("")}`;
+  $("currentSpice").value = options.includes(selected) ? selected : "";
+}
+
+function renderBoardState() {
+  const chunks = state.puzzle.chunks;
+  const mortal = mortalChunks(state.puzzle);
+  const hubIndex = chunks.indexOf(state.puzzle.required);
+  const display = chunks.filter((_, i) => i !== hubIndex);
+  display.splice(4, 0, chunks[hubIndex]);
+  $("tiles").innerHTML = display.map((chunk) => {
+    const remaining = state.session.remaining[mortal.indexOf(chunk.toLowerCase())];
+    return `<div class="tile ${chunk === state.puzzle.required ? "gold" : ""} ${remaining === 0 ? "spent" : ""}">${chunk}<small>${chunk === state.puzzle.required ? "REQUIRED · ∞" : `${remaining} ${remaining === 1 ? "USE" : "USES"} LEFT`}</small></div>`;
+  }).join("");
+  const left = state.session.remaining.reduce((sum, count) => sum + count, 0);
+  $("sessionStatus").textContent = left === 0
+    ? `Clean plate complete · ${state.session.played.length} words · ${state.session.score.toLocaleString()} word points recorded`
+    : state.session.played.length
+    ? `${state.session.played.length} ${state.session.played.length === 1 ? "word" : "words"} recorded · ${state.session.score.toLocaleString()} points · ${left} tile uses left`
+    : `${left} tile uses left · no words recorded`;
+  $("currentSpice").disabled = left === 0;
+  $("solveButton").disabled = left === 0;
+}
+
 function revealSpoilers() {
   state.spoilers = true;
   sessionStorage.setItem(`smush-spoilers-${state.date}`, "1");
@@ -98,18 +144,12 @@ function revealSpoilers() {
   $("solverCard").classList.remove("hidden");
 }
 
-function parseSpiceOrder() {
-  return $("spiceOrder").value.toLowerCase().split(/[^a-z]+/).filter(Boolean);
-}
-
 function solve() {
   if (!state.puzzle) return;
   cancelSolve();
-  const spiceOrder = parseSpiceOrder();
-  const mortal = new Set(state.puzzle.chunks.filter((c) => c !== state.puzzle.required).map((c) => c.toLowerCase()));
-  const invalid = spiceOrder.find((x) => !mortal.has(x));
-  if (invalid) {
-    $("loadMessage").textContent = `“${invalid.toUpperCase()}” is not a finite letter on this board.`;
+  const currentSpice = $("currentSpice").value;
+  if (!currentSpice) {
+    $("loadMessage").textContent = "Choose the spicy letter Smush is currently showing.";
     return;
   }
   $("loadMessage").textContent = "";
@@ -123,7 +163,7 @@ function solve() {
   $("cancelButton").classList.remove("hidden");
   $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  state.worker = new Worker("solver-worker.js?v=2");
+  state.worker = new Worker("solver-worker.js?v=3");
   state.worker.onmessage = ({ data }) => {
     if (data.type === "progress") {
       $("resultHeading").textContent = data.best ? `Best so far: ${data.best.score.toLocaleString()} points` : `Checking ${data.wordCount}-word routes…`;
@@ -135,8 +175,12 @@ function solve() {
   state.worker.onerror = (event) => renderError(event.message || "The solver stopped unexpectedly.");
   state.worker.postMessage({
     puzzle: state.puzzle,
-    spiceOrder,
-    maxWords: Number($("maxWords").value),
+    currentSpice,
+    remaining: state.session.remaining,
+    played: state.session.played,
+    priorScore: state.session.score,
+    firstPangram: state.session.firstPangram,
+    maxWords: Math.max(1, Number($("maxWords").value) - state.session.played.length),
     timeBudget: Number($("timeBudget").value)
   });
 }
@@ -160,6 +204,7 @@ function renderError(message) {
   $("proofBadge").textContent = "Error";
   $("maxScoreValue").textContent = "—";
   $("solvePath").innerHTML = "";
+  $("playBestButton").classList.add("hidden");
   $("scoreBreakdown").innerHTML = "";
   $("resultNote").textContent = message;
 }
@@ -169,37 +214,74 @@ function renderResult(data) {
   $("searchProgress").classList.add("hidden");
   $("resultBody").classList.remove("hidden");
   if (!data.best) {
+    state.latestBest = null;
     $("resultHeading").textContent = "No clean plate found";
     $("proofBadge").textContent = data.complete ? "Proven" : "Time limit";
     $("proofBadge").className = `badge ${data.complete ? "good" : "warn"}`;
     $("maxScoreValue").textContent = "—";
     $("scoreScope").textContent = "Try allowing more words or a longer search.";
     $("solvePath").innerHTML = "";
+    $("playBestButton").classList.add("hidden");
     $("scoreBreakdown").innerHTML = "";
     $("resultNote").textContent = data.complete ? "Every route within the selected word limit was checked." : "The search ended before it could prove that no route exists.";
     return;
   }
   const best = data.best;
-  $("resultHeading").textContent = `${best.path.length}-word clean plate`;
+  state.latestBest = best;
+  $("resultHeading").textContent = `Play ${best.path[0].word.toUpperCase()} next`;
   $("proofBadge").textContent = data.complete ? "Optimal · proven" : "Best found";
   $("proofBadge").className = `badge ${data.complete ? "good" : "warn"}`;
   $("maxScoreValue").textContent = best.score.toLocaleString();
-  $("scoreScope").textContent = "Official deterministic bonuses; excludes time, streak, community and personal-history bonuses.";
+  $("scoreScope").textContent = "Known current spice only; future spicy bonuses are intentionally excluded.";
   $("solvePath").innerHTML = best.path.map((play, index) => `
-    <li>
+    <li class="${index === 0 ? "next-play" : ""}">
       <div><span class="play-word">${play.word}</span><span class="play-detail">${play.tags.join(" · ") || "base score"}${play.spice ? ` · spicy ${play.spice.toUpperCase()}` : ""}</span></div>
       <span class="play-score">+${play.points}</span>
     </li>`).join("");
+  $("playBestButton").textContent = `I played ${best.path[0].word.toUpperCase()}`;
+  $("playBestButton").classList.remove("hidden");
   $("scoreBreakdown").innerHTML = best.breakdown.map((row) => `<p><span>${row.label}</span><strong>${row.value}</strong></p>`).join("");
   $("resultNote").textContent = data.complete
-    ? `Maximum proven after checking ${data.covers.toLocaleString()} clean-plate word sets. Post-first spice is random in the live game; the specified order is a scenario, not a prediction.`
-    : `Best route found before the search budget expired, after checking ${data.covers.toLocaleString()} clean-plate word sets. Increase the budget to try to prove optimality.`;
+    ? `Best next play proven after checking ${data.covers.toLocaleString()} clean-plate word sets. The remaining words show one safe continuation, but recalculate after every new spicy letter.`
+    : `Best next play found before the search budget expired, after checking ${data.covers.toLocaleString()} clean-plate word sets. A longer search may find a stronger recommendation.`;
+}
+
+function recordBestPlay() {
+  const play = state.latestBest?.path?.[0];
+  if (!play) return;
+  play.cost.forEach((count, index) => { state.session.remaining[index] -= count; });
+  if (state.session.played.length === 0) state.session.firstPangram = play.pangram;
+  state.session.played.push(play.word);
+  state.session.score += play.points;
+  saveSession();
+  state.latestBest = null;
+  renderBoardState();
+  renderSpiceOptions("");
+  $("resultCard").classList.add("hidden");
+  const finished = state.session.remaining.every((count) => count === 0);
+  $("loadMessage").textContent = finished
+    ? "Clean plate complete. Nice work."
+    : "Play recorded. Choose the newly revealed spicy letter to get the next recommendation.";
+  $("solverCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function resetBoard() {
+  cancelSolve();
+  state.session = freshSession(state.puzzle);
+  saveSession();
+  state.latestBest = null;
+  renderSpiceOptions(initialSpice(state.puzzle).toLowerCase());
+  renderBoardState();
+  $("resultCard").classList.add("hidden");
+  $("loadMessage").textContent = "Board progress reset.";
 }
 
 $("dateSelect").addEventListener("change", (event) => showPuzzle(event.target.value));
 $("revealSpoilers").addEventListener("click", revealSpoilers);
 $("solveButton").addEventListener("click", solve);
 $("cancelButton").addEventListener("click", () => { cancelSolve(); $("resultHeading").textContent = "Search stopped"; $("proofBadge").textContent = "Cancelled"; });
+$("playBestButton").addEventListener("click", recordBestPlay);
+$("resetButton").addEventListener("click", resetBoard);
 
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 loadArchive();

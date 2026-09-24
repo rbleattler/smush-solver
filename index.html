@@ -7,7 +7,7 @@
   <meta name="description" content="A phone-friendly strategy solver for Smush.">
   <title>Smush Solver</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <main class="shell">
@@ -62,18 +62,18 @@
     <section id="solverCard" class="card hidden" aria-labelledby="solver-heading">
       <div class="section-head">
         <div>
-          <p class="kicker">03 · Set the heat</p>
-          <h2 id="solver-heading">Solve settings</h2>
+          <p class="kicker">03 · Make the next play</p>
+          <h2 id="solver-heading">Best Next Word</h2>
         </div>
       </div>
       <label class="field">
-        <span>Spicy order</span>
-        <input id="spiceOrder" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Example: R, G, O, H">
-        <small>Optional. One letter per play, in order. Unknown later plays receive no speculative spice bonus.</small>
+        <span>Current spicy letter</span>
+        <select id="currentSpice"></select>
+        <small>Choose the letter Smush is showing now. Future spicy letters are unknown and receive no speculative bonus.</small>
       </label>
       <div class="field-grid">
         <label class="field">
-          <span>Maximum words</span>
+          <span>Maximum total words</span>
           <select id="maxWords">
             <option value="6">6</option>
             <option value="8">8</option>
@@ -92,15 +92,17 @@
           </select>
         </label>
       </div>
-      <button id="solveButton" class="button primary">Find the best clean plate</button>
+      <button id="solveButton" class="button primary">Find Best Next Word</button>
       <button id="cancelButton" class="button ghost hidden">Stop search</button>
+      <button id="resetButton" class="button ghost">Reset this board</button>
+      <p id="sessionStatus" class="session-status"></p>
       <p class="micro">The search obeys the game’s curated word list, five-use inventory, no-duplicate rule, additive multipliers, pangram scoring, and Editor’s Choice bonus.</p>
     </section>
 
     <section id="resultCard" class="card results hidden" aria-live="polite">
       <div class="section-head">
         <div>
-          <p class="kicker">04 · Best route</p>
+          <p class="kicker">04 · Recommendation</p>
           <h2 id="resultHeading">Searching…</h2>
         </div>
         <span id="proofBadge" class="badge"></span>
@@ -111,11 +113,12 @@
       </div>
       <div id="resultBody" class="hidden">
         <div class="score-hero">
-          <span>Deterministic maximum</span>
+          <span>Projected clean-plate score</span>
           <strong id="maxScoreValue">—</strong>
           <small id="scoreScope"></small>
         </div>
         <ol id="solvePath" class="solve-path"></ol>
+        <button id="playBestButton" class="button primary hidden">I played this word</button>
         <details>
           <summary>Score breakdown</summary>
           <div id="scoreBreakdown" class="breakdown"></div>
@@ -128,6 +131,6 @@
       <p>Independent companion for <a href="https://www.hankgreen.com/smush/">Smush</a>. Puzzle data is fetched from the game’s public feed and cached only in your browser.</p>
     </footer>
   </main>
-  <script type="module" src="app.js?v=2"></script>
+  <script type="module" src="app.js?v=3"></script>
 </body>
 </html>

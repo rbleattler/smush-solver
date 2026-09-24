@@ -47,6 +47,7 @@ select:focus, input:focus, button:focus-visible { outline: 3px solid rgba(91,141
 .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 370px; margin: 8px auto 22px; }
 .tile { position: relative; display: grid; place-items: center; aspect-ratio: 1.05; border-radius: 18px; background: #e9f0fd; border-bottom: 5px solid #bdcae3; font-size: clamp(1.5rem, 7vw, 2.3rem); font-weight: 950; }
 .tile.gold { background: #f8eaa9; border-color: #cfac3c; color: #5a4406; }
+.tile.spent { opacity: .42; filter: grayscale(.55); }
 .tile small { position: absolute; bottom: 7px; font-size: .55rem; letter-spacing: .12em; opacity: .58; }
 .board-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .board-meta div { padding: 13px 8px; border-radius: 14px; background: #f2ece3; text-align: center; }
@@ -62,6 +63,7 @@ select:focus, input:focus, button:focus-visible { outline: 3px solid rgba(91,141
 .button.primary:active { transform: translateY(4px); box-shadow: 0 3px 0 #090807; }
 .button.danger { background: var(--red); color: white; }
 .button.ghost { border: 1px solid var(--line); background: transparent; }
+.session-status { margin: 12px 0 0; color: var(--muted); font-size: .78rem; font-weight: 750; text-align: center; }
 .hidden { display: none !important; }
 .progress-wrap { text-align: center; }
 .progress { height: 10px; overflow: hidden; border-radius: 99px; background: #e8dfd3; }
@@ -73,6 +75,7 @@ select:focus, input:focus, button:focus-visible { outline: 3px solid rgba(91,141
 .solve-path { margin: 20px 0; padding: 0; list-style: none; counter-reset: plays; }
 .solve-path li { counter-increment: plays; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; margin: 8px 0; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #fffdfa; }
 .solve-path li::before { content: counter(plays); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: white; background: var(--ink); font-size: .75rem; font-weight: 900; }
+.solve-path li.next-play { border: 2px solid var(--green); background: #f0faF3; box-shadow: 0 7px 20px rgba(86,184,112,.14); }
 .play-word { font-size: 1.05rem; font-weight: 950; text-transform: uppercase; }
 .play-detail { display: block; margin-top: 2px; color: var(--muted); font-size: .68rem; }
 .play-score { font-weight: 900; color: #277a40; }
