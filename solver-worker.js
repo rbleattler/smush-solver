@@ -16,6 +16,7 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
   const mortal = chunks.filter((chunk) => chunk !== hub && puzzle.words.some((word) => word.toLowerCase().includes(chunk)));
   const target = Array.isArray(remaining) && remaining.length === mortal.length ? remaining.slice() : mortal.map(() => wear);
   const playedSet = new Set(played.map((word) => word.toLowerCase()));
+  const currentSpiceIndex = mortal.indexOf(currentSpice);
   const alphabet = new Set((puzzle.pangram || chunks.join("")).toLowerCase().replace(/[^a-z]/g, ""));
   const isPangram = (word) => [...alphabet].every((letter) => word.includes(letter));
 
@@ -57,13 +58,17 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
     grouped.get(key).push(candidate);
   }
   candidates = [...grouped.values()].flatMap((group) => group.sort((a, b) => b.base - a.base || a.word.localeCompare(b.word)).slice(0, maxWords));
-  candidates.sort((a, b) => b.totalCost - a.totalCost || b.base - a.base || a.word.localeCompare(b.word));
+  const firstPlayPangram = played.length === 0;
+  const priority = (candidate) => candidate.base * (1 + (candidate.cost[currentSpiceIndex] || 0) + (candidate.pangram ? (firstPlayPangram ? 4 : 2) : 0));
+  candidates.sort((a, b) => priority(b) - priority(a) || b.totalCost - a.totalCost || b.base - a.base || a.word.localeCompare(b.word));
 
   const minWords = 1;
   let best = null;
   let covers = 0;
   let timedOut = false;
   let lastProgress = 0;
+  let visitedNodes = 0;
+  const alternativesByWord = new Map();
 
   for (let wordCount = minWords; wordCount <= maxWords; wordCount++) {
     if (performance.now() >= deadline) { timedOut = true; break; }
@@ -71,7 +76,10 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
     enumerateCovers(wordCount);
   }
 
-  self.postMessage({ type: "result", best, covers, complete: !timedOut, elapsed: performance.now() - started });
+  const alternatives = [...alternativesByWord.values()]
+    .sort((a, b) => b.score - a.score || b.path[0].points - a.path[0].points || a.path[0].word.localeCompare(b.path[0].word))
+    .slice(0, 8);
+  self.postMessage({ type: "result", best, alternatives, covers, complete: !timedOut, elapsed: performance.now() - started });
 
   function enumerateCovers(wordCount) {
     const chosen = [];
@@ -80,7 +88,8 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
     const globalMax = Math.max(...candidates.map((x) => x.totalCost));
 
     function visit(startIndex) {
-      if ((covers & 255) === 0 && performance.now() >= deadline) { timedOut = true; return; }
+      visitedNodes++;
+      if ((visitedNodes & 255) === 0 && performance.now() >= deadline) { timedOut = true; return; }
       const slots = wordCount - chosen.length;
       const remainingTotal = remaining.reduce((a, b) => a + b, 0);
       if (remainingTotal < slots * globalMin || remainingTotal > slots * globalMax) return;
@@ -88,9 +97,14 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
         if (remainingTotal !== 0) return;
         covers++;
         if (performance.now() >= deadline) { timedOut = true; return; }
-        const ordered = bestOrdering(chosen, target, currentSpice, puzzle, deadline, { playedCount: played.length, priorScore, firstPangram });
-        if (!ordered) { timedOut = true; return; }
-        if (!best || ordered.score > best.score) best = ordered;
+        const orderings = bestOrderings(chosen, target, currentSpice, puzzle, deadline, { playedCount: played.length, priorScore, firstPangram });
+        if (!orderings) { timedOut = true; return; }
+        for (const ordered of orderings) {
+          const firstWord = ordered.path[0].word;
+          const previous = alternativesByWord.get(firstWord);
+          if (!previous || ordered.score > previous.score) alternativesByWord.set(firstWord, ordered);
+          if (!best || ordered.score > best.score) best = ordered;
+        }
         if (performance.now() - lastProgress > 600) {
           lastProgress = performance.now();
           self.postMessage({ type: "progress", wordCount, best });
@@ -122,10 +136,10 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
   }
 }
 
-function bestOrdering(words, target, currentSpice, puzzle, deadline, history) {
+function bestOrderings(words, target, currentSpice, puzzle, deadline, history) {
   const count = words.length;
   const fullMask = (1 << count) - 1;
-  let states = new Map([[`0|${history.firstPangram ? 1 : 0}`, { mask: 0, score: 0, path: [], firstPangram: history.firstPangram }]]);
+  let states = new Map([[`0|-1|${history.firstPangram ? 1 : 0}`, { mask: 0, firstIndex: -1, score: 0, path: [], firstPangram: history.firstPangram }]]);
 
   for (let position = 0; position < count; position++) {
     if (performance.now() >= deadline) return null;
@@ -153,10 +167,12 @@ function bestOrdering(words, target, currentSpice, puzzle, deadline, history) {
         if (word.pangram) tags.push(isFirstOverallPlay ? "★★ pangram first" : "★ pangram");
         if (word.editor) tags.push("⭐ Editor’s Choice");
         const mask = state.mask | (1 << i);
+        const firstIndex = position === 0 ? i : state.firstIndex;
         const firstPangram = state.firstPangram || (isFirstOverallPlay && word.pangram);
-        const key = `${mask}|${firstPangram ? 1 : 0}`;
+        const key = `${mask}|${firstIndex}|${firstPangram ? 1 : 0}`;
         const proposal = {
           mask,
+          firstIndex,
           score: state.score + points,
           firstPangram,
           path: [...state.path, { word: word.word, points, base: word.base, multiplier, tags, spice, cost: word.cost, pangram: word.pangram }]
@@ -168,7 +184,7 @@ function bestOrdering(words, target, currentSpice, puzzle, deadline, history) {
     states = next;
   }
 
-  let best = null;
+  const results = [];
   for (const state of states.values()) {
     if (state.mask !== fullMask) continue;
     const allWordScores = history.priorScore + state.score;
@@ -184,7 +200,7 @@ function bestOrdering(words, target, currentSpice, puzzle, deadline, history) {
     if (perfect) { breakdown.push({ label: "Perfect Game", value: "×2" }); total *= 2; }
     breakdown.push({ label: "Deterministic total", value: total });
     const result = { score: total, path: state.path, breakdown, perfect, iceCold: false };
-    if (!best || result.score > best.score) best = result;
+    results.push(result);
   }
-  return best;
+  return results;
 }

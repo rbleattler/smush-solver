@@ -9,7 +9,10 @@ A static, mobile-first strategy solver for [Smush](https://www.hankgreen.com/smu
 - Reproduces finite tile wear, the required gold letter, curated word validation, duplicate restrictions, spicy uses, smush multipliers, pangrams, Editor's Choice, and deterministic end-tally bonuses.
 - Searches for clean-plate routes in a Web Worker.
 - Recommends the best next word for the currently visible spicy letter while preserving a clean-plate continuation.
+- Shows ranked alternative next plays separately from the unranked fallback continuation.
 - Records each recommended play locally, updates the remaining tile lives, and recalculates when the next spicy letter appears.
+- Records other words the player actually used, including valid board words outside the archived suggestion list.
+- Keeps Pangram and Editor's Choice behind independent tap-to-reveal hint cards.
 - Reports whether the displayed maximum was proven or is merely the best route found before the selected time limit.
 - Caches the application shell and most recently loaded archive for use on a phone.
 

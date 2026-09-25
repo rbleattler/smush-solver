@@ -7,7 +7,7 @@
   <meta name="description" content="A phone-friendly strategy solver for Smush.">
   <title>Smush Solver</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <main class="shell">
@@ -52,10 +52,16 @@
         <p>Today’s pangram and solve results are hidden.</p>
         <button id="revealSpoilers" class="button danger">Reveal today’s spoilers</button>
       </div>
-      <div id="pangramPanel" class="pangram-panel">
-        <span>Pangram</span>
-        <strong id="pangramValue"></strong>
-        <small id="editorPick"></small>
+      <div id="hintPanel" class="hint-grid">
+        <button id="revealPangram" class="hint-card" type="button">
+          <span>Pangram</span>
+          <strong id="pangramValue">Tap to reveal</strong>
+        </button>
+        <button id="revealEditor" class="hint-card editor" type="button">
+          <span>Editor’s Choice</span>
+          <strong id="editorPick">Tap to reveal</strong>
+          <small>+15 points</small>
+        </button>
       </div>
     </section>
 
@@ -96,6 +102,21 @@
       <button id="cancelButton" class="button ghost hidden">Stop search</button>
       <button id="resetButton" class="button ghost">Reset this board</button>
       <p id="sessionStatus" class="session-status"></p>
+      <details class="custom-play">
+        <summary>Record a different word you played</summary>
+        <div class="custom-fields">
+          <label class="field">
+            <span>Played word</span>
+            <input id="customWord" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Enter the accepted word">
+          </label>
+          <label class="field">
+            <span>Spicy letter on that play</span>
+            <select id="customSpice"></select>
+          </label>
+        </div>
+        <button id="recordCustomButton" class="button ghost" type="button">Record played word</button>
+        <p id="customMessage" class="micro" role="status"></p>
+      </details>
       <p class="micro">The search obeys the game’s curated word list, five-use inventory, no-duplicate rule, additive multipliers, pangram scoring, and Editor’s Choice bonus.</p>
     </section>
 
@@ -117,8 +138,18 @@
           <strong id="maxScoreValue">—</strong>
           <small id="scoreScope"></small>
         </div>
-        <ol id="solvePath" class="solve-path"></ol>
+        <ol id="solvePath" class="solve-path recommendation"></ol>
         <button id="playBestButton" class="button primary hidden">I played this word</button>
+        <section id="alternativesSection" class="ranked-section hidden">
+          <h3>Other clean-plate-safe choices</h3>
+          <ol id="alternativePlays" class="alternative-plays"></ol>
+          <p class="micro">Ranked by projected deterministic score with the current spicy letter.</p>
+        </section>
+        <details id="continuationSection" class="continuation">
+          <summary>One clean-plate continuation</summary>
+          <ol id="continuationPath" class="solve-path"></ol>
+          <p class="micro">This is a fallback route, not a ranking. Recalculate after Smush reveals each new spicy letter.</p>
+        </details>
         <details>
           <summary>Score breakdown</summary>
           <div id="scoreBreakdown" class="breakdown"></div>
@@ -131,6 +162,6 @@
       <p>Independent companion for <a href="https://www.hankgreen.com/smush/">Smush</a>. Puzzle data is fetched from the game’s public feed and cached only in your browser.</p>
     </footer>
   </main>
-  <script type="module" src="app.js?v=3"></script>
+  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>
