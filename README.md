@@ -22,6 +22,27 @@ The displayed projection includes deterministic bonuses that can be calculated f
 
 It excludes bonuses whose values depend on live community statistics, elapsed time, streaks, or the player's prior browser history.
 
+
+## Browser JSON solve page
+
+GitHub Pages cannot provide a true server-side JSON API, but `json-solve.html` provides a browser-executed JSON interface that uses the same Web Worker solver as the main UI.
+
+Example:
+
+```text
+https://<owner>.github.io/<repo>/json-solve.html?date=2026-10-01&spice=o&remaining=v:0,o:2,s:2,a:0,c:1,h:1,u:2,f:1&played=vouchsafe,hove,heave,sauce,faves,chafe,cue,eve,foe
+```
+
+The page fetches the requested daily puzzle, runs the solver client-side, and replaces the page body with JSON containing the resolved puzzle metadata, best clean-plate route, alternatives, proof status, and per-letter costs.
+
+For machine-generated requests, pass a URL-encoded JSON object in `q` instead:
+
+```text
+json-solve.html?q={"date":"2026-10-01","spice":"o","remaining":{"v":0,"o":2,"s":2,"a":0,"c":1,"h":1,"u":2,"f":1},"played":["vouchsafe","hove","heave","sauce","faves","chafe","cue","eve","foe"]}
+```
+
+Because GitHub Pages is static hosting, a plain HTTP client receives the HTML shell rather than computed JSON; JavaScript must execute in a browser (or browser automation session) to obtain the result. A true HTTP JSON endpoint would require a serverless/runtime component such as a Cloudflare Worker.
+
 ## Local development
 
 Serve the directory with any static web server. The app has no build step and no backend.
