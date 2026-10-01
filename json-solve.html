@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Smush Solver JSON</title>
+</head>
+<body>
+<pre id="output">{"ok":false,"status":"loading"}</pre>
+<script>
+"use strict";
+
+const FEED = "https://fourbythree-stats.hankmt.workers.dev/spub";
+const output = document.getElementById("output");
+
+function localDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function mortalChunks(puzzle) {
+  return puzzle.chunks
+    .filter((chunk) => chunk !== puzzle.required && puzzle.words.some((word) => word.toLowerCase().includes(chunk.toLowerCase())))
+    .map((chunk) => chunk.toLowerCase());
+}
+
+function boolValue(value, fallback = false) {
+  if (value == null || value === "") return fallback;
+  return /^(1|true|yes)$/i.test(String(value));
+}
+
+function intValue(value, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function parseRemainingString(value) {
+  if (!value) return null;
+  const result = {};
+  for (const part of value.split(",")) {
+    const match = part.trim().match(/^([a-z]+)\s*[:=]?\s*(\d+)$/i);
+    if (!match) throw new Error(`Invalid remaining entry: ${part}`);
+    result[match[1].toLowerCase()] = Number(match[2]);
+  }
+  return result;
+}
+
+function readRequest() {
+  const params = new URLSearchParams(location.search);
+  if (params.has("q")) {
+    const raw = params.get("q");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("q must be a JSON object.");
+    return parsed;
+  }
+
+  return {
+    date: params.get("date") || undefined,
+    spice: params.get("spice") || undefined,
+    remaining: parseRemainingString(params.get("remaining")),
+    played: params.get("played") ? params.get("played").split(",").map((word) => word.trim().toLowerCase()).filter(Boolean) : [],
+    priorScore: params.get("priorScore") || undefined,
+    firstPangram: params.get("firstPangram") || undefined,
+    maxWords: params.get("maxWords") || undefined,
+    timeBudget: params.get("timeBudget") || undefined
+  };
+}
+
+function emit(value) {
+  document.documentElement.style.background = "#fff";
+  document.body.style.margin = "0";
+  output.style.whiteSpace = "pre-wrap";
+  output.style.wordBreak = "break-word";
+  output.style.font = "13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+  output.style.padding = "16px";
+  output.textContent = JSON.stringify(value, null, 2);
+}
+
+function remainingArray(request, mortal, wear) {
+  if (request.remaining == null) return mortal.map(() => wear);
+
+  if (Array.isArray(request.remaining)) {
+    if (request.remaining.length !== mortal.length) {
+      throw new Error(`remaining array must have ${mortal.length} entries in mortalOrder.`);
+    }
+    return request.remaining.map((value) => intValue(value, 0, 0, wear));
+  }
+
+  if (typeof request.remaining !== "object") throw new Error("remaining must be an object or array.");
+
+  const normalized = Object.fromEntries(Object.entries(request.remaining).map(([key, value]) => [key.toLowerCase(), value]));
+  const missing = mortal.filter((letter) => !(letter in normalized));
+  if (missing.length) throw new Error(`remaining is missing finite letters: ${missing.join(", ")}`);
+
+  return mortal.map((letter) => intValue(normalized[letter], 0, 0, wear));
+}
+
+function decorateRun(run, mortal) {
+  if (!run) return null;
+  return {
+    ...run,
+    path: run.path.map((play) => ({
+      ...play,
+      costByLetter: Object.fromEntries(mortal.map((letter, index) => [letter, play.cost[index] || 0]))
+    }))
+  };
+}
+
+async function solveWithWorker(payload, timeBudget) {
+  const worker = new Worker("solver-worker.js?v=4");
+  return await new Promise((resolve, reject) => {
+    const hardTimeout = setTimeout(() => {
+      worker.terminate();
+      reject(new Error("Worker did not return before the hard timeout."));
+    }, Math.max(10000, timeBudget + 10000));
+
+    worker.onmessage = ({ data }) => {
+      if (data.type === "result") {
+        clearTimeout(hardTimeout);
+        worker.terminate();
+        resolve(data);
+      } else if (data.type === "error") {
+        clearTimeout(hardTimeout);
+        worker.terminate();
+        reject(new Error(data.message || "Solver worker error."));
+      }
+    };
+
+    worker.onerror = (event) => {
+      clearTimeout(hardTimeout);
+      worker.terminate();
+      reject(new Error(event.message || "Solver worker stopped unexpectedly."));
+    };
+
+    worker.postMessage(payload);
+  });
+}
+
+async function main() {
+  const request = readRequest();
+  const date = request.date || localDate();
+
+  const response = await fetch(`${FEED}?d=${encodeURIComponent(date)}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Puzzle feed returned HTTP ${response.status}.`);
+
+  const data = await response.json();
+  if (!data.ok || !Array.isArray(data.puzzles)) throw new Error("Unexpected puzzle feed response.");
+
+  const entry = data.puzzles.find((item) => item.date === date);
+  if (!entry) throw new Error(`No puzzle found for ${date}.`);
+
+  const puzzle = { ...entry.puzzle, release: date };
+  const mortal = mortalChunks(puzzle);
+  const wear = puzzle.wear || 5;
+  const remaining = remainingArray(request, mortal, wear);
+  const spice = String(request.spice || "").toLowerCase();
+
+  if (!spice) throw new Error("spice is required.");
+  if (!mortal.includes(spice)) throw new Error(`spice must be one of: ${mortal.join(", ")}`);
+
+  const played = Array.isArray(request.played)
+    ? request.played.map((word) => String(word).toLowerCase()).filter(Boolean)
+    : [];
+
+  const maxWords = intValue(request.maxWords, 10, 1, 14);
+  const timeBudget = intValue(request.timeBudget, 15000, 1000, 60000);
+  const priorScore = intValue(request.priorScore, 0, 0);
+  const firstPangram = boolValue(request.firstPangram, false);
+
+  const rawResult = await solveWithWorker({
+    puzzle,
+    currentSpice: spice,
+    remaining,
+    played,
+    priorScore,
+    firstPangram,
+    maxWords,
+    timeBudget
+  }, timeBudget);
+
+  emit({
+    ok: true,
+    request: {
+      date,
+      spice,
+      remaining: Object.fromEntries(mortal.map((letter, index) => [letter, remaining[index]])),
+      played,
+      priorScore,
+      firstPangram,
+      maxWords,
+      timeBudget
+    },
+    puzzle: {
+      date,
+      required: puzzle.required.toLowerCase(),
+      chunks: puzzle.chunks.map((chunk) => chunk.toLowerCase()),
+      pangram: puzzle.pangram || null,
+      editorChoice: puzzle.ec || null,
+      wear,
+      mortalOrder: mortal,
+      acceptedWordCount: puzzle.words.length
+    },
+    result: {
+      complete: rawResult.complete,
+      covers: rawResult.covers,
+      elapsed: rawResult.elapsed,
+      best: decorateRun(rawResult.best, mortal),
+      alternatives: (rawResult.alternatives || []).map((run) => decorateRun(run, mortal))
+    }
+  });
+}
+
+main().catch((error) => emit({
+  ok: false,
+  error: error.message || String(error),
+  usage: {
+    url: "json-solve.html?date=YYYY-MM-DD&spice=x&remaining=a:0,b:2,...&played=word1,word2&maxWords=10&timeBudget=15000",
+    q: "Alternatively pass q=<URL-encoded JSON object> with the same fields."
+  }
+}));
+</script>
+</body>
+</html>
