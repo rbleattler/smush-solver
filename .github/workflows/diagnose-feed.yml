@@ -1,0 +1,40 @@
+name: Diagnose live Smush feed
+on:
+  push:
+    branches: [fix/feed-compatibility-oct2026]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show sanitized live feed schema
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, datetime
+          url = "https://fourbythree-stats.hankmt.workers.dev/spub?d=2026-10-13"
+          with urllib.request.urlopen(url, timeout=20) as r:
+            raw=r.read()
+            print("status:",r.status,"bytes:",len(raw))
+          d=json.loads(raw)
+          print("top level:",list(d) if isinstance(d,dict) else type(d).__name__)
+          if isinstance(d,dict):
+            for k,v in d.items():
+              if isinstance(v,list):
+                print("array",k,"len",len(v))
+                if v and isinstance(v[-1],dict):
+                  latest=next((x for x in v if x.get("date")=="2026-10-13"),v[-1])
+                  print("example date",latest.get("date"),"entry keys",list(latest))
+                  p=latest.get("puzzle",latest)
+                  if isinstance(p,dict):
+                    print("puzzle keys",list(p))
+                    for key,value in p.items():
+                      if key.lower() in ("words","dictionary","validwords","solutions","acceptedwords","wordlist"):
+                        print(key,"type",type(value).__name__,"size",len(value) if hasattr(value,"__len__") else "n/a")
+                      elif isinstance(value,(str,int,float,bool)):
+                        print("scalar",key,repr(value)[:140])
+                      elif isinstance(value,list):
+                        print("list",key,"length",len(value),"first",repr(value[:2])[:230])
+                    break
+          PY
