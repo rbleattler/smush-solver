@@ -13,10 +13,9 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
   const hub = puzzle.required.toLowerCase();
   const wear = puzzle.wear || 5;
   const chunks = puzzle.chunks.map((x) => x.toLowerCase());
-  const mortal = chunks.filter((chunk) => chunk !== hub && puzzle.words.some((word) => word.toLowerCase().includes(chunk)));
+  const mortal = chunks.filter((chunk) => chunk !== hub);
   const target = Array.isArray(remaining) && remaining.length === mortal.length ? remaining.slice() : mortal.map(() => wear);
   const playedSet = new Set(played.map((word) => word.toLowerCase()));
-  const currentSpiceIndex = mortal.indexOf(currentSpice);
   const alphabet = new Set((puzzle.pangram || chunks.join("")).toLowerCase().replace(/[^a-z]/g, ""));
   const isPangram = (word) => [...alphabet].every((letter) => word.includes(letter));
 
@@ -59,7 +58,7 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
   }
   candidates = [...grouped.values()].flatMap((group) => group.sort((a, b) => b.base - a.base || a.word.localeCompare(b.word)).slice(0, maxWords));
   const firstPlayPangram = played.length === 0;
-  const priority = (candidate) => candidate.base * (1 + (candidate.cost[currentSpiceIndex] || 0) + (candidate.pangram ? (firstPlayPangram ? 4 : 2) : 0));
+  const priority = (candidate) => candidate.base * (1 + Math.max(...candidate.cost) + (candidate.pangram ? (firstPlayPangram ? 4 : 2) : 0));
   candidates.sort((a, b) => priority(b) - priority(a) || b.totalCost - a.totalCost || b.base - a.base || a.word.localeCompare(b.word));
 
   const minWords = 1;
@@ -180,10 +179,11 @@ function bestOrderings(words, target, currentSpice, puzzle, deadline, history) {
         if (performance.now() >= deadline) return null;
         if (state.mask & (1 << i)) continue;
         const word = words[i];
-        const spice = position === 0 ? currentSpice : null;
-        const mortal = puzzle.chunks.filter((chunk) => chunk !== puzzle.required && puzzle.words.some((w) => w.includes(chunk.toLowerCase()))).map((x) => x.toLowerCase());
-        const spiceIndex = spice ? mortal.indexOf(spice) : -1;
-        const spicyUses = spiceIndex >= 0 ? word.cost[spiceIndex] : 0;
+        // All DP routes are computed without speculative spicy bonuses.
+        // The currently known spicy letter is applied AFTER the neutral
+        // ordering is determined, once per possible first-spice scenario.
+        const spice = null;
+        const spicyUses = 0;
         const kills = word.cost.filter((n, tile) => n > 0 && spent[tile] < target[tile] && spent[tile] + n >= target[tile]).length;
         const isFirstOverallPlay = history.playedCount === 0 && position === 0;
         const pangramBonus = word.pangram ? (isFirstOverallPlay ? 4 : 2) : 0;
