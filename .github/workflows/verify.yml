@@ -1,0 +1,20 @@
+name: Verify Smush solver
+on:
+  push:
+    branches: [main, fix/feed-compatibility-oct2026]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          node --check puzzle-data.js
+          node --check solver-worker.js
+          node --check sw.js
+      - name: Run feed and solver regression tests
+        run: node --test tests/*.test.mjs
