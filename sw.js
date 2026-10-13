@@ -1,5 +1,5 @@
-const CACHE = "smush-solver-v4";
-const SHELL = ["./", "./index.html", "./styles.css?v=4", "./app.js?v=4", "./solver-worker.js?v=4", "./manifest.webmanifest"];
+const CACHE = "smush-solver-v5";
+const SHELL = ["./", "./index.html", "./styles.css?v=5", "./app.js?v=5", "./solver-worker.js?v=5", "./manifest.webmanifest", "./puzzle-data.js", "./json-solve.html"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL))));
 self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))));
 self.addEventListener("fetch", (event) => {
