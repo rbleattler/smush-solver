@@ -7,7 +7,8 @@
 </head>
 <body>
 <pre id="output">{"ok":false,"status":"loading"}</pre>
-<script>
+<script type="module">
+import { normalizeArchive, finiteChunks } from "./puzzle-data.js";
 "use strict";
 
 const FEED = "https://fourbythree-stats.hankmt.workers.dev/spub";
@@ -18,11 +19,7 @@ function localDate() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function mortalChunks(puzzle) {
-  return puzzle.chunks
-    .filter((chunk) => chunk !== puzzle.required && puzzle.words.some((word) => word.toLowerCase().includes(chunk.toLowerCase())))
-    .map((chunk) => chunk.toLowerCase());
-}
+function mortalChunks(puzzle) { return finiteChunks(puzzle); }
 
 function boolValue(value, fallback = false) {
   if (value == null || value === "") return fallback;
@@ -108,7 +105,7 @@ function decorateRun(run, mortal) {
 }
 
 async function solveWithWorker(payload, timeBudget) {
-  const worker = new Worker("solver-worker.js?v=4");
+  const worker = new Worker("solver-worker.js?v=5");
   return await new Promise((resolve, reject) => {
     const hardTimeout = setTimeout(() => {
       worker.terminate();
@@ -144,10 +141,8 @@ async function main() {
   const response = await fetch(`${FEED}?d=${encodeURIComponent(date)}`, { cache: "no-store" });
   if (!response.ok) throw new Error(`Puzzle feed returned HTTP ${response.status}.`);
 
-  const data = await response.json();
-  if (!data.ok || !Array.isArray(data.puzzles)) throw new Error("Unexpected puzzle feed response.");
-
-  const entry = data.puzzles.find((item) => item.date === date);
+  const data = normalizeArchive(await response.json());
+  const entry = data.find((item) => item.date === date);
   if (!entry) throw new Error(`No puzzle found for ${date}.`);
 
   const puzzle = { ...entry.puzzle, release: date };

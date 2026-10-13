@@ -1,10 +1,11 @@
+import { normalizeArchive, finiteChunks, boardIdentity } from "./puzzle-data.js";
 const FEED = "https://fourbythree-stats.hankmt.workers.dev/spub";
 const $ = (id) => document.getElementById(id);
 const state = { puzzles: [], puzzle: null, date: null, preferredDate: new URLSearchParams(location.search).get("date"), worker: null, spoilers: false, session: null, latestBest: null };
 const LETTER_VALUES = { a:1,b:3,c:3,d:2,e:1,f:4,g:2,h:4,i:1,j:8,k:5,l:1,m:3,n:1,o:1,p:3,q:10,r:1,s:1,t:1,u:1,v:4,w:4,x:8,y:4,z:10 };
 
 function mortalChunks(puzzle) {
-  return puzzle.chunks.filter((c) => c !== puzzle.required && puzzle.words.some((w) => w.includes(c.toLowerCase()))).map((c) => c.toLowerCase());
+  return finiteChunks(puzzle);
 }
 
 function localDate() {
@@ -14,13 +15,6 @@ function localDate() {
 
 function formatDate(value) {
   return new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-}
-
-function initialSpice(puzzle) {
-  const mortal = mortalChunks(puzzle);
-  let hash = 0;
-  for (const c of puzzle.pangram || "") hash = ((hash * 31) + c.charCodeAt(0)) >>> 0;
-  return mortal.length ? mortal[hash % mortal.length] : "—";
 }
 
 function costOfWord(puzzle, rawWord) {
@@ -52,18 +46,17 @@ function isPangram(word) {
 async function loadArchive() {
   const cached = localStorage.getItem("smush-solver-feed");
   if (cached) {
-    try { state.puzzles = JSON.parse(cached); populateDates(); } catch { /* ignore stale cache */ }
+    try { state.puzzles = normalizeArchive({ ok: true, puzzles: JSON.parse(cached) }); populateDates(); } catch { /* ignore stale cache */ }
   }
   try {
     const response = await fetch(`${FEED}?d=${localDate()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`Feed returned ${response.status}`);
     const data = await response.json();
-    if (!data.ok || !Array.isArray(data.puzzles)) throw new Error("Unexpected feed response");
-    state.puzzles = data.puzzles;
+    state.puzzles = normalizeArchive(data);
     localStorage.setItem("smush-solver-feed", JSON.stringify(state.puzzles));
     $("connectionBadge").textContent = "Live archive";
     $("connectionBadge").className = "badge good";
-    populateDates();
+    populateDates(true);
   } catch (error) {
     if (state.puzzles.length) {
       $("connectionBadge").textContent = "Cached archive";
@@ -77,7 +70,7 @@ async function loadArchive() {
   }
 }
 
-function populateDates() {
+function populateDates(forceRefresh = false) {
   const select = $("dateSelect");
   const unique = [...new Map(state.puzzles.map((entry) => [entry.date, entry])).values()].sort((a, b) => b.date.localeCompare(a.date));
   const existing = state.date;
@@ -87,7 +80,7 @@ function populateDates() {
   select.value = unique.some((x) => x.date === preferred) ? preferred
     : unique.some((x) => x.date === existing) ? existing
     : (unique.find((x) => x.date === localDate())?.date || unique[0]?.date || "");
-  if (select.value && (!state.puzzle || state.date !== select.value)) showPuzzle(select.value);
+  if (select.value && (forceRefresh || !state.puzzle || state.date !== select.value)) showPuzzle(select.value);
 }
 
 function showPuzzle(date) {
@@ -95,6 +88,7 @@ function showPuzzle(date) {
   const entry = state.puzzles.find((x) => x.date === date);
   if (!entry) return;
   state.date = date;
+  const previousSpice = $("currentSpice").value;
   state.puzzle = { ...entry.puzzle, release: date };
   state.session = loadSession(date, state.puzzle);
   state.latestBest = null;
@@ -105,8 +99,8 @@ function showPuzzle(date) {
   $("authorBadge").textContent = `by ${state.puzzle.author || "Hank"}`;
   $("wearValue").textContent = `${state.puzzle.wear || 5} each`;
   $("wordCount").textContent = state.puzzle.words.length.toLocaleString();
-  $("firstSpice").textContent = initialSpice(state.puzzle).toUpperCase();
-  renderSpiceOptions(state.session.played.length === 0 ? initialSpice(state.puzzle).toLowerCase() : "");
+  $("firstSpice").textContent = "Select manually";
+  renderSpiceOptions(previousSpice);
 
   renderBoardState();
 
@@ -121,14 +115,42 @@ function showPuzzle(date) {
 function sessionKey(date) { return `smush-solver-session-v1-${date}`; }
 
 function freshSession(puzzle) {
-  return { remaining: mortalChunks(puzzle).map(() => puzzle.wear || 5), played: [], score: 0, firstPangram: false };
+  return { boardId: boardIdentity(puzzle), remaining: mortalChunks(puzzle).map(() => puzzle.wear || 5), played: [], score: 0, firstPangram: false };
 }
 
 function loadSession(date, puzzle) {
   try {
     const value = JSON.parse(localStorage.getItem(sessionKey(date)));
-    if (value && Array.isArray(value.remaining) && value.remaining.length === mortalChunks(puzzle).length && Array.isArray(value.played)) return value;
-  } catch { /* start fresh */ }
+    const original = freshSession(puzzle);
+    if (value && Array.isArray(value.remaining) &&
+        value.remaining.length === original.remaining.length &&
+        value.remaining.every((n) => Number.isInteger(n) && n >= 0 && n <= (puzzle.wear || 5)) &&
+        Array.isArray(value.played)) {
+      if (value.boardId === original.boardId) return value;
+
+      // Sessions predating board fingerprints may be retained only if their
+      // played words reconstruct their recorded inventory on this board.
+      if (!value.boardId) {
+        const expected = original.remaining.slice();
+        const seen = new Set();
+        let valid = true;
+        for (const rawWord of value.played) {
+          const word = String(rawWord).toLowerCase();
+          const cost = costOfWord(puzzle, word);
+          if (seen.has(word) || !word.includes(puzzle.required.toLowerCase()) ||
+              !cost || !cost.every((n, i) => n <= expected[i])) {
+            valid = false;
+            break;
+          }
+          seen.add(word);
+          cost.forEach((n, i) => { expected[i] -= n; });
+        }
+        if (valid && expected.every((n, i) => n === value.remaining[i])) {
+          return { ...value, boardId: original.boardId };
+        }
+      }
+    }
+  } catch { /* start fresh if session is malformed */ }
   return freshSession(puzzle);
 }
 
@@ -206,7 +228,7 @@ function solve() {
   $("cancelButton").classList.remove("hidden");
   $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  state.worker = new Worker("solver-worker.js?v=4");
+  state.worker = new Worker("solver-worker.js?v=5");
   state.worker.onmessage = ({ data }) => {
     if (data.type === "progress") {
       $("resultHeading").textContent = data.best ? `Best so far: ${data.best.score.toLocaleString()} points` : `Checking ${data.wordCount}-word routes…`;
@@ -365,7 +387,7 @@ function resetBoard() {
   state.session = freshSession(state.puzzle);
   saveSession();
   state.latestBest = null;
-  renderSpiceOptions(initialSpice(state.puzzle).toLowerCase());
+  renderSpiceOptions("");
   renderBoardState();
   $("resultCard").classList.add("hidden");
   $("customWord").value = "";
@@ -386,3 +408,4 @@ $("resetButton").addEventListener("click", resetBoard);
 
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 loadArchive();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadArchive(); });

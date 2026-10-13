@@ -16,6 +16,17 @@ A static, mobile-first strategy solver for [Smush](https://www.hankgreen.com/smu
 - Reports whether the displayed maximum was proven or is merely the best route found before the selected time limit.
 - Caches the application shell and most recently loaded archive for use on a phone.
 
+
+## October 2026 compatibility fixes
+
+- Validates the actual public `/spub` response before displaying a board. Live checks on October 13, 2026 confirmed that the feed retains `ok/puzzles/date/puzzle/chunks/required/words`; the normal current board still has nine chunks and 359 accepted words.
+- Supports special archived boards such as September 22, where the feed has **11 chunks**: nine normal tiles and two **one-time-use secret-sentence letters**. The two extras are excluded from the ordinary finite inventory; the secret sentence itself is not simulated.
+- Detects replacement data for an already-selected date and refreshes that board, instead of silently keeping a stale cached board visible. Rechecks the archive when returning to the tab/PWA.
+- Associates saved game progress with the actual board/dictionary fingerprint; compatible legacy sessions are migrated only when their recorded plays reconstruct the stored remaining tile counts.
+- **Does not guess the first spicy letter.** The earlier pangram-hash algorithm was not based on Smush's actual current spicy tile and could bias recommendations. Select the spicy letter displayed in the real game before requesting a route.
+- Includes Node regression tests, run automatically on pushes/PRs.
+- Cloudflare may reject non-browser HTTP clients with error 1010; browser-origin tests from GitHub Pages succeed with CORS `*`. The static JSON view needs a real JS-capable browser and is not a server-side HTTP API.
+
 ## Scoring scope
 
 The displayed projection includes deterministic bonuses that can be calculated from the known state: recorded and projected word scores, the currently visible spicy letter, tile-smush bonuses, pangrams, Editor's Choice, Clean Plate, Unassisted, Beat the Robot, Heavy Lifter/Word Hoard, and Perfect. It intentionally assigns no spicy bonus to future plays because those letters have not yet been revealed.
