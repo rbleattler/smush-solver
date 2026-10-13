@@ -10,10 +10,12 @@ export function normalizeArchive(data) {
       throw new Error(`Invalid puzzle entry at index ${index}: missing date/puzzle.`);
     }
     const puzzle = entry.puzzle;
-    if (!Array.isArray(puzzle.chunks) || puzzle.chunks.length !== 9 ||
+    const isSpecial = puzzle.chunks?.length === 11 && typeof puzzle.sentence === "string" && puzzle.sentence.trim().length > 0;
+    const gameChunks = isSpecial ? puzzle.chunks.slice(0, 9) : puzzle.chunks;
+    if (!Array.isArray(gameChunks) || gameChunks.length !== 9 ||
         !puzzle.chunks.every((chunk) => typeof chunk === "string" && /^[a-z]+$/i.test(chunk)) ||
         typeof puzzle.required !== "string" ||
-        puzzle.chunks.filter((chunk) => chunk.toLowerCase() === puzzle.required.toLowerCase()).length !== 1 ||
+        gameChunks.filter((chunk) => chunk.toLowerCase() === puzzle.required.toLowerCase()).length !== 1 ||
         !Array.isArray(puzzle.words) || !puzzle.words.length ||
         !puzzle.words.every((word) => typeof word === "string" && /^[a-z]+$/i.test(word))) {
       throw new Error(`Smush feed format changed for ${entry.date}: required/chunks/words are not usable.`);
@@ -26,7 +28,10 @@ export function normalizeArchive(data) {
       puzzle: {
         ...puzzle,
         required: puzzle.required.toUpperCase(),
-        chunks: puzzle.chunks.map((chunk) => chunk.toUpperCase()),
+        // Special boards can carry two one-time sentence letters after the
+        // nine normal tiles. They are NOT five-use finite tiles.
+        chunks: gameChunks.map((chunk) => chunk.toUpperCase()),
+        extraLetters: isSpecial ? puzzle.chunks.slice(9).map((chunk) => chunk.toUpperCase()) : [],
         words: puzzle.words.map((word) => word.toLowerCase()),
         wear: puzzle.wear || 5
       }
@@ -45,7 +50,7 @@ export function finiteChunks(puzzle) {
 export function boardIdentity(puzzle) {
   // Dictionary revisions are board revisions too: invalidate earlier cached solves.
   const serialized = JSON.stringify([
-    puzzle.chunks, puzzle.required, puzzle.wear, puzzle.pangram,
+    puzzle.chunks, puzzle.extraLetters, puzzle.required, puzzle.wear, puzzle.pangram,
     puzzle.ec, puzzle.words
   ]);
   let hash = 2166136261;
