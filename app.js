@@ -1,7 +1,8 @@
 import { normalizeArchive, finiteChunks, boardIdentity } from "./puzzle-data.js";
+import { appendPlay, undoLatestPlay, historyRows } from "./play-session.js";
 const FEED = "https://fourbythree-stats.hankmt.workers.dev/spub";
 const $ = (id) => document.getElementById(id);
-const state = { puzzles: [], puzzle: null, date: null, preferredDate: new URLSearchParams(location.search).get("date"), worker: null, spoilers: false, session: null, latestBest: null };
+const state = { puzzles: [], puzzle: null, date: null, preferredDate: new URLSearchParams(location.search).get("date"), worker: null, spoilers: false, session: null, latestBest: null, latestResult: null };
 const LETTER_VALUES = { a:1,b:3,c:3,d:2,e:1,f:4,g:2,h:4,i:1,j:8,k:5,l:1,m:3,n:1,o:1,p:3,q:10,r:1,s:1,t:1,u:1,v:4,w:4,x:8,y:4,z:10 };
 
 function mortalChunks(puzzle) {
@@ -92,6 +93,7 @@ function showPuzzle(date) {
   state.puzzle = { ...entry.puzzle, release: date };
   state.session = loadSession(date, state.puzzle);
   state.latestBest = null;
+  state.latestResult = null;
   state.spoilers = date !== localDate() || sessionStorage.getItem(`smush-spoilers-${date}`) === "1";
   history.replaceState(null, "", `${location.pathname}?date=${date}`);
 
@@ -115,7 +117,7 @@ function showPuzzle(date) {
 function sessionKey(date) { return `smush-solver-session-v1-${date}`; }
 
 function freshSession(puzzle) {
-  return { boardId: boardIdentity(puzzle), remaining: mortalChunks(puzzle).map(() => puzzle.wear || 5), played: [], score: 0, firstPangram: false };
+  return { boardId: boardIdentity(puzzle), remaining: mortalChunks(puzzle).map(() => puzzle.wear || 5), played: [], plays: [], score: 0, firstPangram: false };
 }
 
 function loadSession(date, puzzle) {
@@ -185,6 +187,7 @@ function renderBoardState() {
     : `${left} tile uses left · no words recorded`;
   $("currentSpice").disabled = left === 0;
   $("solveButton").disabled = left === 0;
+  renderPlayedWords();
 }
 
 function revealSpoilers() {
@@ -213,10 +216,6 @@ function solve() {
   if (!state.puzzle) return;
   cancelSolve();
   const currentSpice = $("currentSpice").value;
-  if (!currentSpice) {
-    $("loadMessage").textContent = "Choose the spicy letter Smush is currently showing.";
-    return;
-  }
   $("loadMessage").textContent = "";
   $("resultCard").classList.remove("hidden");
   $("searchProgress").classList.remove("hidden");
@@ -228,7 +227,7 @@ function solve() {
   $("cancelButton").classList.remove("hidden");
   $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  state.worker = new Worker("solver-worker.js?v=5");
+  state.worker = new Worker("solver-worker.js?v=6");
   state.worker.onmessage = ({ data }) => {
     if (data.type === "progress") {
       $("resultHeading").textContent = data.best ? `Best so far: ${data.best.score.toLocaleString()} points` : `Checking ${data.wordCount}-word routes…`;
@@ -253,7 +252,7 @@ function solve() {
 function finishWorker() {
   if (state.worker) state.worker.terminate();
   state.worker = null;
-  $("solveButton").disabled = false;
+  $("solveButton").disabled = !!state.session?.remaining?.every((n) => n === 0);
   $("cancelButton").classList.add("hidden");
 }
 
@@ -261,19 +260,101 @@ function cancelSolve() {
   finishWorker();
 }
 
+function escapeHtml(input) {
+  return String(input).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[char]);
+}
+
+function renderPlayedWords() {
+  if (!state.session) return;
+  const entries = historyRows(state.session);
+  $("playedCard").classList.remove("hidden");
+  $("playedCount").textContent = `${entries.length} played`;
+  $("playedEmpty").classList.toggle("hidden", entries.length > 0);
+  $("playedList").innerHTML = entries.map((entry) => `
+    <li>
+      <span class="played-index">${entry.number}</span>
+      <strong>${escapeHtml(entry.word).toUpperCase()}</strong>
+      <span class="played-meta">${entry.spicy ? `🌶 ${entry.spicy.toUpperCase()}` : entry.trackable ? "No spicy" : "Older session"}</span>
+      <span class="played-points">${entry.points == null ? "—" : `+${entry.points.toLocaleString()}`}</span>
+    </li>`).join("");
+  const last = state.session.played.at(-1);
+  $("undoPlayButton").disabled = !last || (state.session.plays || []).at(-1)?.word !== last;
+}
+
 function renderError(message) {
   finishWorker();
+  state.latestResult = null;
+  state.latestBest = null;
   $("searchProgress").classList.add("hidden");
   $("resultBody").classList.remove("hidden");
   $("resultHeading").textContent = "Solver stopped";
   $("proofBadge").textContent = "Error";
+  $("proofBadge").className = "badge warn";
   $("maxScoreValue").textContent = "—";
+  $("scoreScope").textContent = "";
   $("solvePath").innerHTML = "";
-  $("continuationPath").innerHTML = "";
-  $("alternativesSection").classList.add("hidden");
-  $("playBestButton").classList.add("hidden");
+  $("spiceComparison").classList.add("hidden");
+  $("robustSection").classList.add("hidden");
   $("scoreBreakdown").innerHTML = "";
   $("resultNote").textContent = message;
+}
+
+function renderRoute(plays, compact = false) {
+  return plays.map((play, index) => `
+    <li class="${index === 0 && !compact ? "next-play" : ""}">
+      <button class="path-word-button" type="button" data-record-word="${escapeHtml(play.word)}" aria-label="Record ${escapeHtml(play.word)} as played">
+        <span class="play-word">${escapeHtml(play.word).toUpperCase()}</span>
+        <span class="play-detail">${escapeHtml(play.tags.join(" · ") || (index ? "Future spicy unknown" : "Base score"))}</span>
+      </button>
+      <span class="play-score">+${play.points.toLocaleString()}</span>
+    </li>`).join("");
+}
+
+function renderSpiceMatrix(data) {
+  const groups = data.bySpice || [];
+  $("spiceComparison").classList.toggle("hidden", !groups.length);
+  const selected = $("currentSpice").value;
+  $("spiceMatrix").innerHTML = groups.map((group) => `
+    <details class="spice-group" ${group.spice === selected ? "open" : ""}>
+      <summary><span class="spice-label">🌶 ${group.spice.toUpperCase()}</span>
+        <span class="spice-preview">${group.choices.length
+          ? group.choices.map((route) => escapeHtml(route.path[0].word).toUpperCase()).join(" · ")
+          : "No route found"}</span>
+      </summary>
+      <div class="spice-options">
+        ${group.choices.map((choice, index) => `
+          <article class="spice-choice">
+            <div class="spice-choice-head"><b>#${index + 1} · ${escapeHtml(choice.path[0].word).toUpperCase()}</b>
+              <strong>${choice.score.toLocaleString()} pts</strong></div>
+            <div class="spice-word-strip">${choice.path.map((play) =>
+              `<button type="button" data-record-word="${escapeHtml(play.word)}" title="Record ${escapeHtml(play.word)} as played">${escapeHtml(play.word).toUpperCase()}</button>`
+            ).join("")}</div>
+          </article>`).join("")}
+      </div>
+    </details>`).join("");
+}
+
+function renderResultForSpice() {
+  const data = state.latestResult;
+  if (!data) return;
+  const spice = $("currentSpice").value;
+  const group = data.bySpice?.find((item) => item.spice === spice);
+  const best = group?.choices[0] || data.robust || data.best;
+  if (!best) return;
+  state.latestBest = best;
+  $("resultHeading").textContent = spice
+    ? `Best full route with spicy ${spice.toUpperCase()} now`
+    : "Balanced start across possible spicy letters";
+  $("maxScoreValue").textContent = best.score.toLocaleString();
+  $("scoreScope").textContent = spice
+    ? "Uses today's known spicy letter for the next word; future spicy bonuses excluded."
+    : "Baseline score excludes all spicy bonuses; see balanced-path average below.";
+  $("solvePath").innerHTML = renderRoute(best.path);
+  $("scoreBreakdown").innerHTML = best.breakdown.map((row) =>
+    `<p><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></p>`).join("");
+  $("pathMessage").textContent = "";
 }
 
 function renderResult(data) {
@@ -281,105 +362,122 @@ function renderResult(data) {
   $("searchProgress").classList.add("hidden");
   $("resultBody").classList.remove("hidden");
   if (!data.best) {
+    state.latestResult = null;
     state.latestBest = null;
     $("resultHeading").textContent = "No clean plate found";
-    $("proofBadge").textContent = data.complete ? "Proven" : "Time limit";
-    $("proofBadge").className = `badge ${data.complete ? "good" : "warn"}`;
+    $("proofBadge").textContent = data.complete ? "No route within limit" : "Search timed out";
+    $("proofBadge").className = "badge warn";
     $("maxScoreValue").textContent = "—";
-    $("scoreScope").textContent = "Try allowing more words or a longer search.";
+    $("scoreScope").textContent = "Try raising the maximum words or the search budget.";
     $("solvePath").innerHTML = "";
-    $("continuationPath").innerHTML = "";
-    $("alternativesSection").classList.add("hidden");
-    $("playBestButton").classList.add("hidden");
+    $("spiceComparison").classList.add("hidden");
+    $("robustSection").classList.add("hidden");
     $("scoreBreakdown").innerHTML = "";
-    $("resultNote").textContent = data.complete ? "Every route within the selected word limit was checked." : "The search ended before it could prove that no route exists.";
+    $("resultNote").textContent = data.complete
+      ? "No exact clean plate exists within the selected word limit."
+      : "No complete route was found before the search budget expired.";
     return;
   }
-  const best = data.best;
-  state.latestBest = best;
-  $("resultHeading").textContent = `Play ${best.path[0].word.toUpperCase()} next`;
-  $("proofBadge").textContent = data.complete ? "Optimal · proven" : "Best found";
+  state.latestResult = data;
+  $("proofBadge").textContent = data.complete ? "Optimal within limit" : "Best found";
   $("proofBadge").className = `badge ${data.complete ? "good" : "warn"}`;
-  $("maxScoreValue").textContent = best.score.toLocaleString();
-  $("scoreScope").textContent = "Known current spice only; future spicy bonuses are intentionally excluded.";
-  $("solvePath").innerHTML = renderPlays(best.path.slice(0, 1), true);
-  $("continuationPath").innerHTML = renderPlays(best.path.slice(1));
-  $("continuationSection").classList.toggle("hidden", best.path.length < 2);
-  const alternatives = (data.alternatives || []).filter((item) => item.path[0].word !== best.path[0].word).slice(0, 5);
-  $("alternativePlays").innerHTML = alternatives.map((item, index) => `
-    <li>
-      <span class="alternative-rank">${index + 2}</span>
-      <span><strong>${item.path[0].word.toUpperCase()}</strong><small>+${item.path[0].points} now</small></span>
-      <b>${item.score.toLocaleString()} projected</b>
-    </li>`).join("");
-  $("alternativesSection").classList.toggle("hidden", alternatives.length === 0);
-  $("playBestButton").textContent = `I played ${best.path[0].word.toUpperCase()}`;
-  $("playBestButton").classList.remove("hidden");
-  $("scoreBreakdown").innerHTML = best.breakdown.map((row) => `<p><span>${row.label}</span><strong>${row.value}</strong></p>`).join("");
+  renderResultForSpice();
+  renderSpiceMatrix(data);
+  const robust = data.robust;
+  $("robustSection").classList.toggle("hidden", !robust);
+  if (robust) {
+    $("robustDescription").textContent = `Mean projected total across all ${data.bySpice.length} equally weighted starting spicy letters: ${robust.averageScore.toFixed(1)} pts. Future spicy bonuses remain unknown.`;
+    $("robustPath").innerHTML = renderRoute(robust.path, true);
+  }
   $("resultNote").textContent = data.complete
-    ? `Best next play proven after checking ${data.covers.toLocaleString()} clean-plate word sets. The remaining words show one safe continuation, but recalculate after every new spicy letter.`
-    : `Best next play found before the search budget expired, after checking ${data.covers.toLocaleString()} clean-plate word sets. A longer search may find a stronger recommendation.`;
+    ? `Checked ${data.covers.toLocaleString()} exact-cover sets. Score optimality is within your word limit and assumes no future spicy bonuses.`
+    : `Found ${data.covers.toLocaleString()} exact-cover sets before the time limit. These are the best found, not proven global maxima. Increase search budget for more confidence.`;
 }
 
-function renderPlays(plays, highlightFirst = false) {
-  return plays.map((play, index) => `
-    <li class="${highlightFirst && index === 0 ? "next-play" : ""}">
-      <div><span class="play-word">${play.word}</span><span class="play-detail">${play.tags.join(" · ") || "base score"}${play.spice ? ` · spicy ${play.spice.toUpperCase()}` : ""}</span></div>
-      <span class="play-score">+${play.points}</span>
-    </li>`).join("");
-}
-
-function recordPlay(play) {
-  cancelSolve();
-  play.cost.forEach((count, index) => { state.session.remaining[index] -= count; });
-  if (state.session.played.length === 0) state.session.firstPangram = play.pangram;
-  state.session.played.push(play.word);
-  state.session.score += play.points;
-  saveSession();
-  state.latestBest = null;
-  renderSpiceOptions("");
-  renderBoardState();
-  $("resultCard").classList.add("hidden");
-  const finished = state.session.remaining.every((count) => count === 0);
-  $("loadMessage").textContent = finished
-    ? "Clean plate complete. Nice work."
-    : "Play recorded. Choose the newly revealed spicy letter to get the next recommendation.";
-  $("solverCard").scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function recordBestPlay() {
-  const play = state.latestBest?.path?.[0];
-  if (!play) return;
-  recordPlay(play);
-}
-
-function recordCustomPlay() {
-  const word = $("customWord").value.trim().toLowerCase();
-  const spice = $("customSpice").value;
-  const message = $("customMessage");
-  message.textContent = "";
-  if (!/^[a-z]+$/.test(word)) { message.textContent = "Enter the played word using letters only."; return; }
-  if (!spice) { message.textContent = "Choose the spicy letter that was active for this play."; return; }
-  if (state.session.played.includes(word)) { message.textContent = `${word.toUpperCase()} was already recorded.`; return; }
-  if (!word.includes(state.puzzle.required.toLowerCase())) { message.textContent = `The word must contain the required ${state.puzzle.required.toUpperCase()}.`; return; }
+function scoreActualPlay(word, spicy) {
+  const message = (why) => { throw new Error(why); };
+  if (!/^[a-z]+$/.test(word)) message("Enter a word using letters only.");
+  if (!spicy || !mortalChunks(state.puzzle).includes(spicy)) message("Select the actual spicy letter for this play first.");
+  if (state.session.played.includes(word)) message(`${word.toUpperCase()} was already played.`);
+  if (!word.includes(state.puzzle.required.toLowerCase())) message("The required gold letter is missing.");
   const cost = costOfWord(state.puzzle, word);
-  if (!cost || !cost.some(Boolean)) { message.textContent = "That word cannot be made from this board."; return; }
-  if (!cost.every((count, index) => count <= state.session.remaining[index])) { message.textContent = "That word uses more tile lives than remain."; return; }
+  if (!cost || !cost.some(Boolean) || !cost.every((count, i) => count <= state.session.remaining[i])) {
+    message("That word cannot be formed with the remaining tile lives.");
+  }
   const mortal = mortalChunks(state.puzzle);
-  const spicyUses = cost[mortal.indexOf(spice)] || 0;
-  const kills = cost.filter((count, index) => count > 0 && count === state.session.remaining[index]).length;
+  const spicyUses = cost[mortal.indexOf(spicy)] || 0;
+  const kills = cost.filter((n, i) => n > 0 && n === state.session.remaining[i]).length;
   const pangram = isPangram(word);
   const firstOverall = state.session.played.length === 0;
   const pangramBonus = pangram ? (firstOverall ? 4 : 2) : 0;
   const base = [...word].reduce((sum, letter) => sum + (LETTER_VALUES[letter] || 1), 0);
   const editor = state.puzzle.ec?.toLowerCase() === word;
   const points = base * (1 + spicyUses + kills + pangramBonus) + (editor ? 15 : 0);
-  const listed = state.puzzle.words.some((candidate) => candidate.toLowerCase() === word);
-  recordPlay({ word, cost, pangram, points });
-  $("customWord").value = "";
-  $("customMessage").textContent = listed
-    ? `${word.toUpperCase()} recorded for ${points} points.`
-    : `${word.toUpperCase()} recorded for ${points} points. It is not in the archived word list, so the solver will not suggest it.`;
+  return { word, cost, pangram, points, spicy };
+}
+
+function recordPlay(play) {
+  cancelSolve();
+  state.session = appendPlay(state.session, play);
+  saveSession();
+  state.latestBest = null;
+  state.latestResult = null;
+  renderSpiceOptions("");
+  renderBoardState();
+  $("resultCard").classList.add("hidden");
+  const finished = state.session.remaining.every((count) => count === 0);
+  $("loadMessage").textContent = finished
+    ? "Clean plate complete. Nice work."
+    : `${play.word.toUpperCase()} recorded (+${play.points} points). Select the newly revealed spicy letter and recompute your Golden Path.`;
+  $("historyMessage").textContent = "";
+  $("solverCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function recordSuggestedWord(rawWord) {
+  const word = String(rawWord).toLowerCase();
+  const spice = $("currentSpice").value;
+  try {
+    // Recompute live from the CURRENT board, not from a projected route that
+    // deliberately ignored future spicy letters.
+    const play = scoreActualPlay(word, spice);
+    recordPlay(play);
+  } catch (error) {
+    $("pathMessage").textContent = error.message;
+  }
+}
+
+function recordCustomPlay() {
+  const word = $("customWord").value.trim().toLowerCase();
+  const spice = $("customSpice").value;
+  try {
+    const play = scoreActualPlay(word, spice);
+    const listed = state.puzzle.words.some((candidate) => candidate.toLowerCase() === word);
+    recordPlay(play);
+    $("customWord").value = "";
+    $("customMessage").textContent = listed
+      ? `${word.toUpperCase()} recorded for ${play.points} points.`
+      : `${word.toUpperCase()} recorded as an unlisted accepted word. It won't be recommended by the solver.`;
+  } catch (error) {
+    $("customMessage").textContent = error.message;
+  }
+}
+
+function undoLastRecordedPlay() {
+  try {
+    cancelSolve();
+    const last = state.session.plays?.at(-1);
+    state.session = undoLatestPlay(state.session);
+    saveSession();
+    state.latestBest = null;
+    state.latestResult = null;
+    renderSpiceOptions(last?.spicy || "");
+    renderBoardState();
+    $("resultCard").classList.add("hidden");
+    $("historyMessage").textContent = "Last recorded play undone. Check Smush's actual current spicy letter before your next solve.";
+    $("loadMessage").textContent = "";
+  } catch (error) {
+    $("historyMessage").textContent = error.message;
+  }
 }
 
 function resetBoard() {
@@ -387,6 +485,7 @@ function resetBoard() {
   state.session = freshSession(state.puzzle);
   saveSession();
   state.latestBest = null;
+  state.latestResult = null;
   renderSpiceOptions("");
   renderBoardState();
   $("resultCard").classList.add("hidden");
@@ -399,10 +498,20 @@ $("dateSelect").addEventListener("change", (event) => { state.preferredDate = ev
 $("revealSpoilers").addEventListener("click", revealSpoilers);
 $("revealPangram").addEventListener("click", () => revealHint("pangram"));
 $("revealEditor").addEventListener("click", () => revealHint("editor"));
-$("currentSpice").addEventListener("change", (event) => { $("customSpice").value = event.target.value; });
+$("currentSpice").addEventListener("change", (event) => {
+  $("customSpice").value = event.target.value;
+  if (state.latestResult) {
+    renderResultForSpice();
+    renderSpiceMatrix(state.latestResult);
+  }
+});
 $("solveButton").addEventListener("click", solve);
 $("cancelButton").addEventListener("click", () => { cancelSolve(); $("resultHeading").textContent = "Search stopped"; $("proofBadge").textContent = "Cancelled"; });
-$("playBestButton").addEventListener("click", recordBestPlay);
+$("resultCard").addEventListener("click", (event) => {
+  const control = event.target.closest("button[data-record-word]");
+  if (control) recordSuggestedWord(control.dataset.recordWord);
+});
+$("undoPlayButton").addEventListener("click", undoLastRecordedPlay);
 $("recordCustomButton").addEventListener("click", recordCustomPlay);
 $("resetButton").addEventListener("click", resetBoard);
 

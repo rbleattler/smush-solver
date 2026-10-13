@@ -13,10 +13,9 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
   const hub = puzzle.required.toLowerCase();
   const wear = puzzle.wear || 5;
   const chunks = puzzle.chunks.map((x) => x.toLowerCase());
-  const mortal = chunks.filter((chunk) => chunk !== hub && puzzle.words.some((word) => word.toLowerCase().includes(chunk)));
+  const mortal = chunks.filter((chunk) => chunk !== hub);
   const target = Array.isArray(remaining) && remaining.length === mortal.length ? remaining.slice() : mortal.map(() => wear);
   const playedSet = new Set(played.map((word) => word.toLowerCase()));
-  const currentSpiceIndex = mortal.indexOf(currentSpice);
   const alphabet = new Set((puzzle.pangram || chunks.join("")).toLowerCase().replace(/[^a-z]/g, ""));
   const isPangram = (word) => [...alphabet].every((letter) => word.includes(letter));
 
@@ -59,7 +58,7 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
   }
   candidates = [...grouped.values()].flatMap((group) => group.sort((a, b) => b.base - a.base || a.word.localeCompare(b.word)).slice(0, maxWords));
   const firstPlayPangram = played.length === 0;
-  const priority = (candidate) => candidate.base * (1 + (candidate.cost[currentSpiceIndex] || 0) + (candidate.pangram ? (firstPlayPangram ? 4 : 2) : 0));
+  const priority = (candidate) => candidate.base * (1 + Math.max(...candidate.cost) + (candidate.pangram ? (firstPlayPangram ? 4 : 2) : 0));
   candidates.sort((a, b) => priority(b) - priority(a) || b.totalCost - a.totalCost || b.base - a.base || a.word.localeCompare(b.word));
 
   const minWords = 1;
@@ -68,7 +67,8 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
   let timedOut = false;
   let lastProgress = 0;
   let visitedNodes = 0;
-  const alternativesByWord = new Map();
+  const choicesBySpice = new Map(mortal.map((spice) => [spice, new Map()]));
+  const robustByWord = new Map();
 
   for (let wordCount = minWords; wordCount <= maxWords; wordCount++) {
     if (performance.now() >= deadline) { timedOut = true; break; }
@@ -76,10 +76,22 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
     enumerateCovers(wordCount);
   }
 
-  const alternatives = [...alternativesByWord.values()]
-    .sort((a, b) => b.score - a.score || b.path[0].points - a.path[0].points || a.path[0].word.localeCompare(b.path[0].word))
-    .slice(0, 8);
-  self.postMessage({ type: "result", best, alternatives, covers, complete: !timedOut, elapsed: performance.now() - started });
+  const ranked = (options) => [...options].sort((a, b) => b.score - a.score || b.path[0].points - a.path[0].points || a.path[0].word.localeCompare(b.path[0].word));
+  const bySpice = mortal.map((spice) => ({
+    spice,
+    // Three distinct FIRST moves, each with a complete exact-cover continuation.
+    choices: ranked(choicesBySpice.get(spice).values()).slice(0, 3)
+  }));
+  const robust = [...robustByWord.values()].sort((a, b) => b.averageScore - a.averageScore || a.path[0].word.localeCompare(b.path[0].word))[0] || null;
+  const selected = currentSpice && choicesBySpice.has(currentSpice)
+    ? ranked(choicesBySpice.get(currentSpice).values())
+    : [];
+  best = selected[0] || robust;
+  self.postMessage({
+    type: "result", best, alternatives: selected.slice(0, 8),
+    bySpice, robust, covers, complete: !timedOut, elapsed: performance.now() - started,
+    rankingModel: "Known current spice scored; unknown future spicy bonuses counted as zero. Robust start assumes equal likelihood across eligible first spicy letters."
+  });
 
   function enumerateCovers(wordCount) {
     const chosen = [];
@@ -97,13 +109,28 @@ function solve({ puzzle, currentSpice, remaining, played = [], priorScore = 0, f
         if (remainingTotal !== 0) return;
         covers++;
         if (performance.now() >= deadline) { timedOut = true; return; }
-        const orderings = bestOrderings(chosen, target, currentSpice, puzzle, deadline, { playedCount: played.length, priorScore, firstPangram });
+        const history = { playedCount: played.length, priorScore, firstPangram };
+        // A fixed first word earns its spicy bonus independently of the
+        // continuation's ordering. Search once, then score all possible
+        // CURRENT spice choices without multiplying the exact-cover work.
+        const orderings = bestOrderings(chosen, target, null, puzzle, deadline, history);
         if (!orderings) { timedOut = true; return; }
-        for (const ordered of orderings) {
-          const firstWord = ordered.path[0].word;
-          const previous = alternativesByWord.get(firstWord);
-          if (!previous || ordered.score > previous.score) alternativesByWord.set(firstWord, ordered);
-          if (!best || ordered.score > best.score) best = ordered;
+        for (const neutral of orderings) {
+          const firstWord = neutral.path[0].word;
+          let total = 0;
+          for (const spice of mortal) {
+            const ordered = repriceOrdering(neutral, spice, mortal, puzzle, history);
+            total += ordered.score;
+            const bucket = choicesBySpice.get(spice);
+            const previous = bucket.get(firstWord);
+            if (!previous || ordered.score > previous.score) bucket.set(firstWord, ordered);
+            if (spice === currentSpice && (!best || ordered.score > best.score)) best = ordered;
+          }
+          const averageScore = total / mortal.length;
+          const previousRobust = robustByWord.get(firstWord);
+          if (!previousRobust || averageScore > previousRobust.averageScore) {
+            robustByWord.set(firstWord, { ...neutral, averageScore });
+          }
         }
         if (performance.now() - lastProgress > 600) {
           lastProgress = performance.now();
@@ -152,10 +179,11 @@ function bestOrderings(words, target, currentSpice, puzzle, deadline, history) {
         if (performance.now() >= deadline) return null;
         if (state.mask & (1 << i)) continue;
         const word = words[i];
-        const spice = position === 0 ? currentSpice : null;
-        const mortal = puzzle.chunks.filter((chunk) => chunk !== puzzle.required && puzzle.words.some((w) => w.includes(chunk.toLowerCase()))).map((x) => x.toLowerCase());
-        const spiceIndex = spice ? mortal.indexOf(spice) : -1;
-        const spicyUses = spiceIndex >= 0 ? word.cost[spiceIndex] : 0;
+        // All DP routes are computed without speculative spicy bonuses.
+        // The currently known spicy letter is applied AFTER the neutral
+        // ordering is determined, once per possible first-spice scenario.
+        const spice = null;
+        const spicyUses = 0;
         const kills = word.cost.filter((n, tile) => n > 0 && spent[tile] < target[tile] && spent[tile] + n >= target[tile]).length;
         const isFirstOverallPlay = history.playedCount === 0 && position === 0;
         const pangramBonus = word.pangram ? (isFirstOverallPlay ? 4 : 2) : 0;
@@ -187,20 +215,38 @@ function bestOrderings(words, target, currentSpice, puzzle, deadline, history) {
   const results = [];
   for (const state of states.values()) {
     if (state.mask !== fullMask) continue;
-    const allWordScores = history.priorScore + state.score;
-    const breakdown = [{ label: "Recorded + projected word scores", value: allWordScores }];
-    let total = allWordScores;
-    total += 50; breakdown.push({ label: "Clean Plate", value: "+50" });
-    total += 25; breakdown.push({ label: "Unassisted", value: "+25" });
-    if (puzzle.best && allWordScores > puzzle.best) { total += 5; breakdown.push({ label: "Beat the Robot", value: "+5" }); }
-    const totalWords = history.playedCount + count;
-    if (totalWords <= 6) { total += 25; breakdown.push({ label: `Heavy Lifter · ${totalWords} words`, value: "+25" }); }
-    else if (totalWords >= 13) { total += 25; breakdown.push({ label: `Word Hoard · ${totalWords} words`, value: "+25" }); }
-    const perfect = state.firstPangram;
-    if (perfect) { breakdown.push({ label: "Perfect Game", value: "×2" }); total *= 2; }
-    breakdown.push({ label: "Deterministic total", value: total });
-    const result = { score: total, path: state.path, breakdown, perfect, iceCold: false };
-    results.push(result);
+    results.push(totalize(state.path, state.score, puzzle, history, state.firstPangram));
   }
   return results;
+}
+
+// Every returned route must consume the entire remaining finite inventory.
+// The displayed result never estimates spicy letters beyond the next play.
+function totalize(path, futureWordPoints, puzzle, history, perfect) {
+  const allWordScores = history.priorScore + futureWordPoints;
+  const breakdown = [{ label: "Recorded + projected word scores", value: allWordScores }];
+  let total = allWordScores;
+  total += 50; breakdown.push({ label: "Clean Plate", value: "+50" });
+  total += 25; breakdown.push({ label: "Unassisted", value: "+25" });
+  if (puzzle.best && allWordScores > puzzle.best) { total += 5; breakdown.push({ label: "Beat the Robot", value: "+5" }); }
+  const totalWords = history.playedCount + path.length;
+  if (totalWords <= 6) { total += 25; breakdown.push({ label: `Heavy Lifter · ${totalWords} words`, value: "+25" }); }
+  else if (totalWords >= 13) { total += 25; breakdown.push({ label: `Word Hoard · ${totalWords} words`, value: "+25" }); }
+  if (perfect) { breakdown.push({ label: "Perfect Game", value: "×2" }); total *= 2; }
+  breakdown.push({ label: "Deterministic total", value: total });
+  return { score: total, path, wordPoints: futureWordPoints, breakdown, perfect, iceCold: false };
+}
+
+function repriceOrdering(neutral, spice, mortal, puzzle, history) {
+  const path = neutral.path.slice();
+  const first = { ...path[0], tags: [...path[0].tags] };
+  const uses = first.cost[mortal.indexOf(spice)] || 0;
+  first.spice = spice;
+  if (uses) {
+    first.points += uses * first.base;
+    first.multiplier += uses;
+    first.tags.unshift(`🌶×${uses}`);
+  }
+  path[0] = first;
+  return totalize(path, neutral.wordPoints + uses * first.base, puzzle, history, neutral.perfect);
 }

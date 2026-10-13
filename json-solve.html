@@ -105,7 +105,7 @@ function decorateRun(run, mortal) {
 }
 
 async function solveWithWorker(payload, timeBudget) {
-  const worker = new Worker("solver-worker.js?v=5");
+  const worker = new Worker("solver-worker.js?v=6");
   return await new Promise((resolve, reject) => {
     const hardTimeout = setTimeout(() => {
       worker.terminate();
@@ -201,7 +201,12 @@ async function main() {
       covers: rawResult.covers,
       elapsed: rawResult.elapsed,
       best: decorateRun(rawResult.best, mortal),
-      alternatives: (rawResult.alternatives || []).map((run) => decorateRun(run, mortal))
+      alternatives: (rawResult.alternatives || []).map((run) => decorateRun(run, mortal)),
+      robust: decorateRun(rawResult.robust, mortal),
+      bySpice: (rawResult.bySpice || []).map(({ spice, choices }) => ({
+        spice, choices: choices.map((run) => decorateRun(run, mortal))
+      })),
+      rankingModel: rawResult.rankingModel
     }
   });
 }

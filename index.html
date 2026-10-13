@@ -7,7 +7,7 @@
   <meta name="description" content="A phone-friendly strategy solver for Smush.">
   <title>Smush Solver</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <main class="shell">
@@ -69,13 +69,13 @@
       <div class="section-head">
         <div>
           <p class="kicker">03 · Make the next play</p>
-          <h2 id="solver-heading">Best Next Word</h2>
+          <h2 id="solver-heading">Plan your run</h2>
         </div>
       </div>
       <label class="field">
         <span>Current spicy letter</span>
         <select id="currentSpice"></select>
-        <small>Choose the letter Smush is showing now. Future spicy letters are unknown and receive no speculative bonus.</small>
+        <small>Select the actual spicy letter for an exact next-play ranking, or leave blank to see a balanced starting plan. Future spicy bonuses are unknown.</small>
       </label>
       <div class="field-grid">
         <label class="field">
@@ -98,7 +98,7 @@
           </select>
         </label>
       </div>
-      <button id="solveButton" class="button primary">Find Best Next Word</button>
+      <button id="solveButton" class="button primary">Find Golden Path</button>
       <button id="cancelButton" class="button ghost hidden">Stop search</button>
       <button id="resetButton" class="button ghost">Reset this board</button>
       <p id="sessionStatus" class="session-status"></p>
@@ -123,45 +123,62 @@
     <section id="resultCard" class="card results hidden" aria-live="polite">
       <div class="section-head">
         <div>
-          <p class="kicker">04 · Recommendation</p>
-          <h2 id="resultHeading">Searching…</h2>
+          <p class="kicker">04 · The route</p>
+          <h2>Golden Path</h2>
+          <p class="micro" id="resultHeading">Searching…</p>
         </div>
-        <span id="proofBadge" class="badge"></span>
+        <span id="proofBadge" class="badge">Working</span>
       </div>
       <div id="searchProgress" class="progress-wrap">
         <div class="progress"><i></i></div>
-        <p>Exploring clean-plate combinations in a background worker…</p>
+        <p>Finding exact clean-plate paths and spicy-letter options…</p>
       </div>
       <div id="resultBody" class="hidden">
         <div class="score-hero">
-          <span>Projected clean-plate score</span>
+          <span>Projected clean-plate total</span>
           <strong id="maxScoreValue">—</strong>
           <small id="scoreScope"></small>
         </div>
-        <ol id="solvePath" class="solve-path recommendation"></ol>
-        <button id="playBestButton" class="button primary hidden">I played this word</button>
-        <section id="alternativesSection" class="ranked-section hidden">
-          <h3>Other clean-plate-safe choices</h3>
-          <ol id="alternativePlays" class="alternative-plays"></ol>
-          <p class="micro">Ranked by projected deterministic score with the current spicy letter.</p>
+        <p class="micro path-instruction">Tap any word below to record it as played. Your <strong>current spicy letter</strong> above will be used to score the play. Recalculate as the spicy letter changes.</p>
+        <p id="pathMessage" class="micro" role="status"></p>
+        <ol id="solvePath" class="solve-path golden-path"></ol>
+        <section id="spiceComparison" class="ranked-section hidden">
+          <h3>Top 3 paths for every spicy letter</h3>
+          <p class="micro">Each option is a different first word with its own complete clean-plate finish. Expand a letter to compare. Future spicy points are not guessed.</p>
+          <div id="spiceMatrix"></div>
         </section>
-        <details id="continuationSection" class="continuation">
-          <summary>One clean-plate continuation</summary>
-          <ol id="continuationPath" class="solve-path"></ol>
-          <p class="micro">This is a fallback route, not a ranking. Recalculate after Smush reveals each new spicy letter.</p>
+        <details id="robustSection" class="continuation hidden">
+          <summary>Balanced path across unknown starting spicy letters</summary>
+          <p id="robustDescription" class="micro"></p>
+          <ol id="robustPath" class="solve-path compact-path"></ol>
         </details>
         <details>
-          <summary>Score breakdown</summary>
+          <summary>Projected score breakdown</summary>
           <div id="scoreBreakdown" class="breakdown"></div>
         </details>
         <p id="resultNote" class="micro"></p>
       </div>
     </section>
 
+    <section id="playedCard" class="card played-card hidden" aria-labelledby="played-heading">
+      <div class="section-head">
+        <div>
+          <p class="kicker">05 · Your progress</p>
+          <h2 id="played-heading">Played Words</h2>
+        </div>
+        <span id="playedCount" class="badge">0 played</span>
+      </div>
+      <p id="playedEmpty" class="micro">No words yet. Record a Golden Path word or use “Record a different word” above.</p>
+      <ol id="playedList" class="played-list"></ol>
+      <p id="historyMessage" class="micro" role="status"></p>
+      <button id="undoPlayButton" class="button ghost" disabled>Undo last recorded play</button>
+      <p class="micro">Only plays recorded by this version can be undone safely. Older saved words remain visible.</p>
+    </section>
+
     <footer>
       <p>Independent companion for <a href="https://www.hankgreen.com/smush/">Smush</a>. Puzzle data is fetched from the game’s public feed and cached only in your browser.</p>
     </footer>
   </main>
-  <script type="module" src="app.js?v=5"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>
