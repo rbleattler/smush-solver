@@ -30,6 +30,13 @@ jobs:
                 raw=r.read()
                 print('ORIGIN',origin,'HTTP',r.status,'CORS',r.headers.get('Access-Control-Allow-Origin'),'BYTES',len(raw))
                 with open('/tmp/smush-feed.json','wb') as f:f.write(raw)
+                d=json.loads(raw)
+                for e in d['puzzles']:
+                  p=e['puzzle']
+                  invalid=[w for w in p.get('words',[]) if not isinstance(w,str) or not w.isalpha()]
+                  if len(p.get('chunks',[]))!=9 or p.get('required') not in p.get('chunks',[]) or invalid:
+                    print('SPECIAL',e['date'],'chunk_count',len(p.get('chunks',[])),'chunks',p.get('chunks'),'required',p.get('required'),'invalid_word_count',len(invalid),'sample',invalid[:6])
+
             except urllib.error.HTTPError as e:
               print('ORIGIN',origin,'HTTP',e.code,'BODY',e.read(140))
           PY
