@@ -121,8 +121,36 @@ function freshSession(puzzle) {
 function loadSession(date, puzzle) {
   try {
     const value = JSON.parse(localStorage.getItem(sessionKey(date)));
-    if (value && value.boardId === boardIdentity(puzzle) && Array.isArray(value.remaining) && value.remaining.length === mortalChunks(puzzle).length && value.remaining.every((n) => Number.isInteger(n) && n >= 0 && n <= (puzzle.wear || 5)) && Array.isArray(value.played)) return value;
-  } catch { /* start fresh */ }
+    const original = freshSession(puzzle);
+    if (value && Array.isArray(value.remaining) &&
+        value.remaining.length === original.remaining.length &&
+        value.remaining.every((n) => Number.isInteger(n) && n >= 0 && n <= (puzzle.wear || 5)) &&
+        Array.isArray(value.played)) {
+      if (value.boardId === original.boardId) return value;
+
+      // Sessions predating board fingerprints may be retained only if their
+      // played words reconstruct their recorded inventory on this board.
+      if (!value.boardId) {
+        const expected = original.remaining.slice();
+        const seen = new Set();
+        let valid = true;
+        for (const rawWord of value.played) {
+          const word = String(rawWord).toLowerCase();
+          const cost = costOfWord(puzzle, word);
+          if (seen.has(word) || !word.includes(puzzle.required.toLowerCase()) ||
+              !cost || !cost.every((n, i) => n <= expected[i])) {
+            valid = false;
+            break;
+          }
+          seen.add(word);
+          cost.forEach((n, i) => { expected[i] -= n; });
+        }
+        if (valid && expected.every((n, i) => n === value.remaining[i])) {
+          return { ...value, boardId: original.boardId };
+        }
+      }
+    }
+  } catch { /* start fresh if session is malformed */ }
   return freshSession(puzzle);
 }
 
