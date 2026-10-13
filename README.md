@@ -8,9 +8,9 @@ A static, mobile-first strategy solver for [Smush](https://www.hankgreen.com/smu
 - Hides the current day's pangram and solution controls behind a spoiler gate.
 - Reproduces finite tile wear, the required gold letter, curated word validation, duplicate restrictions, spicy uses, smush multipliers, pangrams, Editor's Choice, and deterministic end-tally bonuses.
 - Searches for clean-plate routes in a Web Worker.
-- Recommends the best next word for the currently visible spicy letter while preserving a clean-plate continuation.
+- Recommends a full Golden Path for the current spicy letter, plus three viable full routes for each spicy-letter scenario and a balanced fallback.
 - Shows ranked alternative next plays separately from the unranked fallback continuation.
-- Records each recommended play locally, updates the remaining tile lives, and recalculates when the next spicy letter appears.
+- Records any tapped Golden Path word locally, updates the remaining tile lives, and keeps a visible Played Words ledger with safe undo.
 - Records other words the player actually used, including valid board words outside the archived suggestion list.
 - Keeps Pangram and Editor's Choice behind independent tap-to-reveal hint cards.
 - Reports whether the displayed maximum was proven or is merely the best route found before the selected time limit.
@@ -26,6 +26,18 @@ A static, mobile-first strategy solver for [Smush](https://www.hankgreen.com/smu
 - **Does not guess the first spicy letter.** The earlier pangram-hash algorithm was not based on Smush's actual current spicy tile and could bias recommendations. Select the spicy letter displayed in the real game before requesting a route.
 - Includes Node regression tests, run automatically on pushes/PRs.
 - Cloudflare may reject non-browser HTTP clients with error 1010; browser-origin tests from GitHub Pages succeed with CORS `*`. The static JSON view needs a real JS-capable browser and is not a server-side HTTP API.
+
+## Golden Path and played-word history
+
+Golden Path is a complete **exact-cover clean-plate route**, not merely a suggested next word. Choose the spicy letter Smush displays, press **Find Golden Path**, then:
+
+- **Tap any word in the path** after playing it in Smush to record its live points and tile consumption. The app checks the required gold letter, remaining finite tile lives, and duplicate restriction again before recording.
+- Expand **Top 3 paths for every spicy letter** to compare up to three **distinct first moves**, each with a full valid remaining path. If fewer than three valid starting moves were found, only those found are shown.
+- Expand **Balanced path** to see the route with the highest mean projected score when each eligible starting spicy letter is weighted equally.
+- **Played Words** lists completed plays and points from this browser, persists progress across reloads, and allows undo of the most recently tracked play. Legacy sessions remain visible, though old entries without a recorded tile vector cannot be undone.
+- After each play, enter the **new real spicy letter** and recalculate. You may play a different word in a route first if it is currently valid; its score is computed using the real current inventory/spice.
+
+**Scoring interpretation:** The solver can know the *current* spicy letter but not future spicy changes. Rankings include only deterministic score elements plus the known current spicy. A "proven" result means the highest projected score among exact-cover sets **within the chosen word cap** was checked before the deadline; a timed-out result is "best found", not optimal. Neither status guarantees a true maximum under future random spicy outcomes.
 
 ## Scoring scope
 
