@@ -16,5 +16,30 @@ jobs:
           node --check puzzle-data.js
           node --check solver-worker.js
           node --check sw.js
+
+      - name: Inspect live feed CORS and parse all released boards (diagnostic)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error
+          url='https://fourbythree-stats.hankmt.workers.dev/spub?d=2026-10-13'
+          for origin in ['https://www.hankgreen.com','https://rbleattler.github.io']:
+            hdr={'User-Agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1','Accept':'application/json, text/plain, */*','Origin':origin,'Referer':origin+'/'}
+            try:
+              with urllib.request.urlopen(urllib.request.Request(url,headers=hdr),timeout=20) as r:
+                raw=r.read()
+                print('ORIGIN',origin,'HTTP',r.status,'CORS',r.headers.get('Access-Control-Allow-Origin'),'BYTES',len(raw))
+                with open('/tmp/smush-feed.json','wb') as f:f.write(raw)
+            except urllib.error.HTTPError as e:
+              print('ORIGIN',origin,'HTTP',e.code,'BODY',e.read(140))
+          PY
+          node --input-type=module - <<'JS'
+          import fs from 'node:fs';
+          import { normalizeArchive } from './puzzle-data.js';
+          const path='/tmp/smush-feed.json';
+          if (!fs.existsSync(path)) throw Error('No allowed feed');
+          const normalized=normalizeArchive(JSON.parse(fs.readFileSync(path,'utf8')));
+          console.log('VALIDATED_BOARDS',normalized.length,'LATEST',normalized.at(-1).date,'LATEST_WORDS',normalized.at(-1).puzzle.words.length);
+          JS
       - name: Run feed and solver regression tests
         run: node --test tests/*.test.mjs
