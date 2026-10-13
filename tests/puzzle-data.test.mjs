@@ -21,6 +21,22 @@ test("accepts the October 13 archive schema and returns all eight finite tiles",
   assert.equal(archive[0].puzzle.words.length, 3);
 });
 
+
+test("special September board keeps the one-time H/W out of finite tile inventory", () => {
+  const special = {
+    ...puzzle,
+    required: "O",
+    chunks: ["O","D","E","G","I","L","N","P","Y","H","W"],
+    sentence: "hollywood ending",
+    pangram: "deploying",
+    words: ["deploying", "doing", "peony"]
+  };
+  const normalized = normalizeArchive({ ok: true, puzzles: [{ date: "2026-09-22", puzzle: special }] })[0].puzzle;
+  assert.deepEqual(normalized.extraLetters, ["H", "W"]);
+  assert.deepEqual(finiteChunks(normalized), ["d","e","g","i","l","n","p","y"]);
+  assert.equal(normalized.chunks.length, 9);
+});
+
 test("rejects malformed live feeds instead of quietly using stale puzzle data", () => {
   assert.throws(() => normalizeArchive({ ok: true, games: [] }), /format changed/);
   assert.throws(() => normalizeArchive({ ok: true, puzzles: [{ date: "2026-10-13", puzzle: { ...puzzle, words: undefined } }] }), /format changed/);
