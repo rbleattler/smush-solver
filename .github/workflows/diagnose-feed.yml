@@ -8,39 +8,36 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Compare feed paths and browser headers
+      - uses: actions/checkout@v4
+      - name: Capture current public puzzle data
         shell: bash
         run: |
           python3 - <<'PY'
-          import urllib.request, urllib.error, json
-          urls=["https://fourbythree-stats.hankmt.workers.dev/spub","https://fourbythree-stats.hankmt.workers.dev/spub?d=2026-10-13","https://www.hankgreen.com/smush/"]
-          for url in urls:
-            for browser in [False,True]:
-              headers={"User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1","Accept":"application/json, text/plain, */*","Origin":"https://www.hankgreen.com","Referer":"https://www.hankgreen.com/smush/"} if browser else {}
-              req=urllib.request.Request(url,headers=headers)
-              try:
-                with urllib.request.urlopen(req,timeout=15) as res:
-                  data=res.read()
-                  print("URL",url,"BROWSER",browser,"STATUS",res.status,"SIZE",len(data),"CONTENTTYPE",res.headers.get("Content-Type"))
-                  if "/spub" in url:
-                    try:
-                      d=json.loads(data)
-                      print("DATAKEYS",list(d) if isinstance(d,dict) else type(d).__name__)
-                      for k,v in (d.items() if isinstance(d,dict) else []):
-                        if isinstance(v,list):
-                          print("LIST",k,"COUNT",len(v))
-                          if v and isinstance(v[0],dict):
-                            x=next((x for x in v if x.get("date")=="2026-10-13"),v[-1])
-                            print("ENTRYKEYS",list(x),"DATE",x.get("date"))
-                            p=x.get("puzzle",x)
-                            if isinstance(p,dict):
-                              print("PUZZLEKEYS",list(p))
-                              for key,val in p.items():
-                                if isinstance(val,list): print("FIELD",key,"list",len(val),"head",repr(val[:2])[:250])
-                                elif isinstance(val,(str,int,float,bool)):print("FIELD",key,"scalar",str(val)[:150])
-                      break
-                    except Exception as e: print("JSONERROR",repr(e))
-              except urllib.error.HTTPError as e:
-                print("URL",url,"BROWSER",browser,"ERROR",e.code,"BODY",e.read(400).decode("utf8","replace"))
-              except Exception as e: print("URL",url,"BROWSER",browser,"ERROR",repr(e))
+          import urllib.request,json
+          url='https://fourbythree-stats.hankmt.workers.dev/spub?d=2026-10-13'
+          headers={'User-Agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1','Accept':'application/json, text/plain, */*','Origin':'https://www.hankgreen.com','Referer':'https://www.hankgreen.com/smush/'}
+          data=json.load(urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20))
+          entry=next(x for x in data['puzzles'] if x['date']=='2026-10-13')
+          with open('/tmp/today.json','w') as f:json.dump(entry['puzzle'],f)
+          print('today words',len(entry['puzzle']['words']), 'required',entry['puzzle']['required'])
           PY
+      - name: Execute current worker on today’s board
+        shell: bash
+        run: |
+          node <<'JS'
+          const fs=require('fs'),vm=require('vm'),{performance}=require('perf_hooks');
+          const puzzle=JSON.parse(fs.readFileSync('/tmp/today.json','utf8'));
+          const logs=[];
+          const sandbox={
+            performance,
+            self:{onmessage:null,postMessage: d => {
+              if(d.type==='result') logs.push({type:'result',complete:d.complete,covers:d.covers,best:d.best?.score,first:d.best?.path?.[0]?.word,elapsed:d.elapsed});
+              else if (d.type==='error') logs.push({type:'error',error:d.message});
+            }}
+          };
+          vm.runInNewContext(fs.readFileSync('solver-worker.js','utf8'),sandbox);
+          const c=puzzle.chunks.filter(x=>x!==puzzle.required && puzzle.words.some(w=>w.includes(x.toLowerCase())));
+          const args={puzzle,currentSpice:'h',remaining:c.map(()=>5),played:[],priorScore:0,firstPangram:false,maxWords:10,timeBudget:15000};
+          const start=performance.now(); sandbox.self.onmessage({data:args});
+          console.log('WORKER',JSON.stringify({duration:Math.round(performance.now()-start),results:logs}));
+          JS
