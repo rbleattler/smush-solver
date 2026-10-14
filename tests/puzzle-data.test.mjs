@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { performance } from "node:perf_hooks";
-import { normalizeArchive, finiteChunks, boardIdentity } from "../puzzle-data.js";
+import { normalizeArchive, finiteChunks, boardIdentity, cacheableArchive } from "../puzzle-data.js";
 
 const puzzle = {
   author: "Hank",
@@ -73,4 +73,30 @@ test("worker exact cover still uses the real I-required puzzle constraints", () 
   assert.equal(best.path[0].word, "plaything");
   assert.deepEqual(Array.from(best.path[0].cost), Array(8).fill(1));
   assert.equal(best.path.length, 1);
+});
+
+test("offline cache limits snapshots and retains a selected older board", () => {
+  const puzzleEntry = (date) => ({
+    date, puzzle: { ...puzzle, words: ["plaything", "playing"] }
+  });
+  const entries = Array.from({ length: 106 }, (_, i) => {
+    const day = new Date(Date.UTC(2026, 6, 1 + i)).toISOString().slice(0, 10);
+    return puzzleEntry(day);
+  });
+  const selected = entries[0].date;
+  const snapshot = cacheableArchive(entries, selected);
+  assert.equal(snapshot.length, 15);
+  assert.ok(snapshot.some((entry) => entry.date === selected));
+  assert.ok(snapshot.length < entries.length);
+  assert.ok(JSON.stringify(snapshot).length < 600000);
+});
+
+test("offline snapshot respects size cap even when the current archive is large", () => {
+  const large = Array.from({ length: 20 }, (_, i) => ({
+    date: new Date(Date.UTC(2026, 9, i + 1)).toISOString().slice(0, 10),
+    puzzle: { ...puzzle, words: Array.from({ length: 200 }, (_, j) => `playing${j}`) }
+  }));
+  const snapshot = cacheableArchive(large, "", 14, 10000);
+  assert.ok(snapshot.length < large.length);
+  assert.ok(JSON.stringify(snapshot).length <= 10000);
 });

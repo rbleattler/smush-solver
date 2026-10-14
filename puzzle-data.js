@@ -60,3 +60,25 @@ export function boardIdentity(puzzle) {
   }
   return `${puzzle.chunks.join("")}:${(hash >>> 0).toString(16)}`;
 }
+
+/**
+ * Store only a compact offline fallback, never the entire public archive.
+ * The full archive remains available in memory whenever the live feed loads.
+ * The most recent boards plus the explicitly viewed older board are retained
+ * when they fit within a conservative character budget.
+ */
+export function cacheableArchive(puzzles, selectedDate = "", maxDays = 14, maxChars = 600000) {
+  const sorted = [...puzzles].sort((a, b) => b.date.localeCompare(a.date));
+  const wanted = sorted.slice(0, maxDays);
+  const selected = sorted.find((entry) => entry.date === selectedDate);
+  if (selected && !wanted.some((entry) => entry.date === selected.date)) wanted.push(selected);
+  let chars = 2;
+  const result = [];
+  for (const entry of wanted) {
+    const length = JSON.stringify(entry).length + 1;
+    if (chars + length > maxChars) continue;
+    chars += length;
+    result.push(entry);
+  }
+  return result;
+}

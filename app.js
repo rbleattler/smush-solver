@@ -1,4 +1,4 @@
-import { normalizeArchive, finiteChunks, boardIdentity } from "./puzzle-data.js";
+import { normalizeArchive, finiteChunks, boardIdentity, cacheableArchive } from "./puzzle-data.js";
 import { appendPlay, undoLatestPlay, historyRows } from "./play-session.js";
 const FEED = "https://fourbythree-stats.hankmt.workers.dev/spub";
 const $ = (id) => document.getElementById(id);
@@ -45,29 +45,57 @@ function isPangram(word) {
 }
 
 async function loadArchive() {
-  const cached = localStorage.getItem("smush-solver-feed");
-  if (cached) {
-    try { state.puzzles = normalizeArchive({ ok: true, puzzles: JSON.parse(cached) }); populateDates(); } catch { /* ignore stale cache */ }
+  // The offline snapshot is a fallback, not a prerequisite for rendering.
+  // A browser can deny localStorage access (private mode, low quota, etc.).
+  let cached = null;
+  try { cached = localStorage.getItem("smush-solver-feed"); } catch { /* storage unavailable */ }
+  if (cached && !state.puzzles.length) {
+    try {
+      const entries = normalizeArchive({ ok: true, puzzles: JSON.parse(cached) });
+      state.puzzles = entries;
+      populateDates();
+      $("connectionBadge").textContent = "Cached archive";
+      $("connectionBadge").className = "badge warn";
+    } catch { /* invalid cache cannot block the live feed */ }
   }
+
+  let livePuzzles;
   try {
     const response = await fetch(`${FEED}?d=${localDate()}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`Feed returned ${response.status}`);
-    const data = await response.json();
-    state.puzzles = normalizeArchive(data);
-    localStorage.setItem("smush-solver-feed", JSON.stringify(state.puzzles));
-    $("connectionBadge").textContent = "Live archive";
-    $("connectionBadge").className = "badge good";
-    populateDates(true);
+    livePuzzles = normalizeArchive(await response.json());
   } catch (error) {
-    if (state.puzzles.length) {
+    if (state.date && state.puzzles.length) {
       $("connectionBadge").textContent = "Cached archive";
       $("connectionBadge").className = "badge warn";
-      $("loadMessage").textContent = "The live feed is unavailable, so this device’s last cached archive is shown.";
+      $("loadMessage").textContent = "Live feed unavailable; showing a previously saved offline board.";
     } else {
       $("connectionBadge").textContent = "Feed unavailable";
       $("connectionBadge").className = "badge warn";
       $("loadMessage").textContent = `Could not load the puzzle archive: ${error.message}`;
     }
+    return;
+  }
+
+  // Render the current live board FIRST. Saving a local offline snapshot
+  // may fail due to WebKit's localStorage quota even when the fetch succeeds.
+  state.puzzles = livePuzzles;
+  try {
+    populateDates(true);
+  } catch (error) {
+    $("connectionBadge").textContent = "Board error";
+    $("connectionBadge").className = "badge warn";
+    $("loadMessage").textContent = `The live feed loaded, but the board could not render: ${error.message}`;
+    return;
+  }
+  $("connectionBadge").textContent = "Live archive";
+  $("connectionBadge").className = "badge good";
+  $("loadMessage").textContent = "";
+  try {
+    localStorage.setItem("smush-solver-feed", JSON.stringify(cacheableArchive(livePuzzles, state.date)));
+  } catch {
+    // Remain online and playable; caching is strictly optional.
+    $("loadMessage").textContent = "Live board loaded. Offline storage is unavailable on this device.";
   }
 }
 
@@ -227,7 +255,7 @@ function solve() {
   $("cancelButton").classList.remove("hidden");
   $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  state.worker = new Worker("solver-worker.js?v=6");
+  state.worker = new Worker("solver-worker.js?v=7");
   state.worker.onmessage = ({ data }) => {
     if (data.type === "progress") {
       $("resultHeading").textContent = data.best ? `Best so far: ${data.best.score.toLocaleString()} points` : `Checking ${data.wordCount}-word routes…`;

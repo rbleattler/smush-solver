@@ -14,7 +14,7 @@ A static, mobile-first strategy solver for [Smush](https://www.hankgreen.com/smu
 - Records other words the player actually used, including valid board words outside the archived suggestion list.
 - Keeps Pangram and Editor's Choice behind independent tap-to-reveal hint cards.
 - Reports whether the displayed maximum was proven or is merely the best route found before the selected time limit.
-- Caches the application shell and most recently loaded archive for use on a phone.
+- Caches the application shell and a bounded snapshot of recent boards for offline use, without blocking live play if browser storage is full.
 
 
 ## October 2026 compatibility fixes
@@ -75,3 +75,9 @@ Serve the directory with any static web server. The app has no build step and no
 Publish the repository root with GitHub Pages. All paths are relative, so it works at either a user site or a project site URL.
 
 Smush and its puzzle data belong to their respective creators. This is an independent companion and fetches puzzle data at runtime rather than republishing the archive in this repository.
+
+## Mobile startup and storage quotas
+
+The public Smush archive is now large enough that serializing every released word list into `localStorage` can exceed mobile browser storage quotas. The app **renders the live feed before attempting to save anything** and stores only up to 14 recent boards (plus the currently selected older board when space allows) in a capped offline snapshot. A `QuotaExceededError` or disabled storage produces a nonfatal notice; it can never masquerade as a failed live fetch or leave the date selector on `Loading…`.
+
+The GitHub Pages shell cache is versioned separately. A regression test uses iPhone-sized WebKit with a forced `QuotaExceededError` and asserts the board, date selector, and live-feed indicator all render normally.
