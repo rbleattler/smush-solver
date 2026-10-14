@@ -105,7 +105,7 @@ function decorateRun(run, mortal) {
 }
 
 async function solveWithWorker(payload, timeBudget) {
-  const worker = new Worker("solver-worker.js?v=6");
+  const worker = new Worker("solver-worker.js?v=7");
   return await new Promise((resolve, reject) => {
     const hardTimeout = setTimeout(() => {
       worker.terminate();
