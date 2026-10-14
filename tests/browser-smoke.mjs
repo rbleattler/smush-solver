@@ -23,7 +23,7 @@ try {
   }));
   await page.goto("http://127.0.0.1:8765/?date=2026-10-13");
   await page.locator("#boardCard:not(.hidden)").waitFor();
-  await page.locator("#revealSpoilers").click();
+  if (await page.locator("#revealSpoilers").isVisible()) await page.locator("#revealSpoilers").click();
   await page.locator("#currentSpice").selectOption("h");
   await page.locator("#solveButton").click();
   await page.locator("#solvePath button[data-record-word]").first().waitFor({ timeout: 10000 });
