@@ -255,7 +255,7 @@ function solve() {
   $("cancelButton").classList.remove("hidden");
   $("resultCard").scrollIntoView({ behavior: "smooth", block: "start" });
 
-  state.worker = new Worker("solver-worker.js?v=6");
+  state.worker = new Worker("solver-worker.js?v=7");
   state.worker.onmessage = ({ data }) => {
     if (data.type === "progress") {
       $("resultHeading").textContent = data.best ? `Best so far: ${data.best.score.toLocaleString()} points` : `Checking ${data.wordCount}-word routes…`;
